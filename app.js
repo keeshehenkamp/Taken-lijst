@@ -1032,35 +1032,6 @@ function applyRemoteState(remote) {
 }
 
 /**
- * Toont het migratie-dialoog en geeft een Promise terug met de keuze:
- * 'remote' of 'local'.
- */
-function askMigrationChoice(localState, remoteState) {
-  return new Promise((resolve) => {
-    const modal = document.getElementById('modal-migrate');
-    document.getElementById('migrate-local-counts').textContent =
-      `${localState.tasks.length} taken, ${localState.categories.length} categorieën`;
-    document.getElementById('migrate-remote-counts').textContent =
-      `${remoteState.tasks.length} taken, ${remoteState.categories.length} categorieën`;
-
-    const btnRemote = document.getElementById('btn-migrate-use-remote');
-    const btnLocal  = document.getElementById('btn-migrate-use-local');
-
-    // Vervang knoppen om eerdere listeners weg te halen
-    const newRemote = btnRemote.cloneNode(true);
-    const newLocal  = btnLocal.cloneNode(true);
-    btnRemote.replaceWith(newRemote);
-    btnLocal.replaceWith(newLocal);
-
-    const cleanup = () => { modal.style.display = 'none'; };
-    newRemote.addEventListener('click', () => { cleanup(); resolve('remote'); });
-    newLocal .addEventListener('click', () => { cleanup(); resolve('local');  });
-
-    modal.style.display = 'flex';
-  });
-}
-
-/**
  * Wordt aangeroepen zodra een gebruiker is ingelogd. Bepaalt de juiste
  * migratie-strategie, schrijft eventueel lokale data naar de cloud en
  * start vervolgens de realtime listener voor inkomende wijzigingen.
@@ -1071,30 +1042,18 @@ async function onSignedIn(user) {
 
   try {
     const remote = await fetchRemoteState(user.uid);
-    // We kijken alleen naar TAKEN; categorieën zijn meestal gewoon de defaults
-    // en zouden anders telkens een nutteloze migratie-prompt triggeren.
-    const localHasTasks  = state.tasks.length > 0;
-    const remoteHasTasks = remote && remote.tasks.length > 0;
-
-    if (remoteHasTasks && localHasTasks) {
-      // Beide hebben echte taken: vraag de gebruiker
-      const choice = await askMigrationChoice(state, remote);
-      if (choice === 'remote') {
-        applyRemoteState(remote);
-      } else {
-        await pushRemoteState(user.uid, state);
-      }
-    } else if (remoteHasTasks) {
-      // Alleen cloud heeft taken — gebruik die (inclusief categorieën)
+    // Cloud is altijd leidend. Lokale wijzigingen worden alleen geüpload
+    // als de cloud nog leeg is (eerste keer inloggen op een nieuw apparaat).
+    if (remote && remote.tasks.length > 0) {
       applyRemoteState(remote);
-    } else if (localHasTasks) {
-      // Alleen lokaal heeft taken — upload naar cloud
+    } else if (state.tasks.length > 0) {
+      // Cloud is leeg maar we hebben hier al taken — upload ze
       await pushRemoteState(user.uid, state);
     } else if (remote) {
-      // Geen taken aan beide kanten, maar cloud bestaat — sync categorieën
+      // Cloud bestaat, geen taken nergens; sync alleen de categorieën
       applyRemoteState(remote);
     } else {
-      // Eerste keer ooit inloggen, helemaal niets — upload onze defaults
+      // Allereerste keer inloggen ooit — upload onze defaults
       await pushRemoteState(user.uid, state);
     }
 
