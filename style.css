@@ -160,6 +160,59 @@ body {
 }
 .btn-icon:hover { color: var(--text-primary); background: var(--bg-hover); }
 
+/* ── Auth-gebied in de header ────────────────────────────────── */
+.auth-area {
+  display: flex;
+  align-items: center;
+  margin-left: .25rem;
+  padding-left: .65rem;
+  border-left: 1px solid var(--border-soft);
+}
+
+.user-info {
+  display: flex;
+  align-items: center;
+  gap: .5rem;
+}
+
+.user-name {
+  font-size: .82rem;
+  color: var(--text-secondary);
+  font-weight: 500;
+  max-width: 180px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Migratie-keuzes (in de modal) */
+.migrate-counts {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: .75rem;
+  margin: .25rem 0 .5rem;
+}
+
+.migrate-choice {
+  padding: .75rem .85rem;
+  background: var(--bg-surface-2);
+  border: 1px solid var(--border-soft);
+  border-radius: var(--radius-md);
+  display: flex;
+  flex-direction: column;
+  gap: .25rem;
+}
+
+.migrate-choice strong {
+  font-size: .85rem;
+  color: var(--text-primary);
+}
+
+.migrate-choice span {
+  font-size: .8rem;
+  color: var(--text-muted);
+}
+
 /* ── Hoofdlayout ─────────────────────────────────────────────── */
 .app-layout {
   max-width: 1280px;

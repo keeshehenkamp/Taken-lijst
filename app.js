@@ -8,7 +8,13 @@
      5. Categoriebeheer
      6. Export / Import
      7. Event-listeners (initialisatie onderaan)
+     8. Cloud-sync (Firebase Authentication + Firestore)
    ================================================================ */
+
+import {
+  signInWithGoogle, signOutUser, onAuthChange,
+  fetchRemoteState, pushRemoteState, subscribeRemoteState
+} from './firebase-sync.js';
 
 /* ── 1. STATE & LOCALSTORAGE ──────────────────────────────────── */
 
@@ -37,6 +43,14 @@ function loadJSON(key, fallback) {
 function persist() {
   localStorage.setItem(STORAGE_KEYS.tasks,      JSON.stringify(state.tasks));
   localStorage.setItem(STORAGE_KEYS.categories, JSON.stringify(state.categories));
+
+  // Als de gebruiker is ingelogd én we zijn niet bezig een remote-update
+  // toe te passen, ook naar Firestore schrijven. Zie sectie 8 onderaan.
+  if (cloud.user && !cloud.isApplyingRemote) {
+    pushRemoteState(cloud.user.uid, state).catch(err =>
+      console.warn('Cloud-sync mislukt:', err)
+    );
+  }
 }
 
 /* Geeft een uniek id terug op basis van huidige tijdstempel + willekeurig getal */
@@ -1034,5 +1048,178 @@ document.addEventListener('keydown', e => {
   }
 });
 
+/* ================================================================
+   8. CLOUD-SYNC (Firebase Authentication + Firestore)
+
+   Twee modi:
+     - Uitgelogd: alleen localStorage (zelfde gedrag als voorheen)
+     - Ingelogd:  Firestore is leidend, localStorage dient als cache
+
+   Bij inloggen wordt gekeken of er zowel lokaal als in de cloud al
+   data staat. Als beide gevuld zijn krijgt de gebruiker een keuze.
+   Anders gebeurt het automatisch: lege cloud → upload lokaal,
+   lege lokaal → download cloud.
+   ================================================================ */
+
+// Globale cloud-status; door persist() gebruikt om eventueel naar Firestore te schrijven
+const cloud = {
+  user: null,
+  unsubscribe: null,   // listener-opruimer als we ingelogd zijn
+  isApplyingRemote: false, // voorkomt dat een binnenkomende update opnieuw geüpload wordt
+};
+
+/**
+ * Vervangt de huidige state door nieuwe data en hertekent alles,
+ * zonder dat dit een upload triggert (gebruikt voor remote-updates
+ * en migratie-keuzes).
+ */
+function applyRemoteState(remote) {
+  cloud.isApplyingRemote = true;
+  state.tasks      = remote.tasks      || [];
+  state.categories = remote.categories || [];
+  // Cache lokaal zodat de app ook offline meteen up-to-date is
+  localStorage.setItem(STORAGE_KEYS.tasks,      JSON.stringify(state.tasks));
+  localStorage.setItem(STORAGE_KEYS.categories, JSON.stringify(state.categories));
+  renderAll();
+  cloud.isApplyingRemote = false;
+}
+
+/**
+ * Toont het migratie-dialoog en geeft een Promise terug met de keuze:
+ * 'remote' of 'local'.
+ */
+function askMigrationChoice(localState, remoteState) {
+  return new Promise((resolve) => {
+    const modal = document.getElementById('modal-migrate');
+    document.getElementById('migrate-local-counts').textContent =
+      `${localState.tasks.length} taken, ${localState.categories.length} categorieën`;
+    document.getElementById('migrate-remote-counts').textContent =
+      `${remoteState.tasks.length} taken, ${remoteState.categories.length} categorieën`;
+
+    const btnRemote = document.getElementById('btn-migrate-use-remote');
+    const btnLocal  = document.getElementById('btn-migrate-use-local');
+
+    // Vervang knoppen om eerdere listeners weg te halen
+    const newRemote = btnRemote.cloneNode(true);
+    const newLocal  = btnLocal.cloneNode(true);
+    btnRemote.replaceWith(newRemote);
+    btnLocal.replaceWith(newLocal);
+
+    const cleanup = () => { modal.style.display = 'none'; };
+    newRemote.addEventListener('click', () => { cleanup(); resolve('remote'); });
+    newLocal .addEventListener('click', () => { cleanup(); resolve('local');  });
+
+    modal.style.display = 'flex';
+  });
+}
+
+/**
+ * Wordt aangeroepen zodra een gebruiker is ingelogd. Bepaalt de juiste
+ * migratie-strategie, schrijft eventueel lokale data naar de cloud en
+ * start vervolgens de realtime listener voor inkomende wijzigingen.
+ */
+async function onSignedIn(user) {
+  cloud.user = user;
+  updateAuthUI(user);
+
+  try {
+    const remote = await fetchRemoteState(user.uid);
+    const localHasData  = state.tasks.length > 0 || state.categories.length > 0;
+    const remoteHasData = remote && (remote.tasks.length > 0 || remote.categories.length > 0);
+
+    if (remoteHasData && localHasData) {
+      // Beide gevuld: vraag de gebruiker
+      const choice = await askMigrationChoice(state, remote);
+      if (choice === 'remote') {
+        applyRemoteState(remote);
+      } else {
+        // Lokale gebruiken: upload naar de cloud (overschrijft remote)
+        await pushRemoteState(user.uid, state);
+      }
+    } else if (remoteHasData) {
+      // Alleen cloud heeft data
+      applyRemoteState(remote);
+    } else if (localHasData) {
+      // Alleen lokaal heeft data — upload naar cloud
+      await pushRemoteState(user.uid, state);
+    }
+    // Als beide leeg zijn: niets te doen
+
+    // Start realtime listener: wijzigingen op andere apparaten verschijnen direct
+    cloud.unsubscribe = subscribeRemoteState(user.uid, (remoteState) => {
+      if (!remoteState) return;
+      // Voorkom loop: alleen toepassen als er echt iets veranderd is
+      const same =
+        JSON.stringify(remoteState.tasks)      === JSON.stringify(state.tasks) &&
+        JSON.stringify(remoteState.categories) === JSON.stringify(state.categories);
+      if (!same) applyRemoteState(remoteState);
+    });
+  } catch (err) {
+    console.warn('Fout tijdens cloud-synchronisatie:', err);
+    alert('Kon niet synchroniseren met de cloud. Je werkt nu lokaal verder.');
+  }
+}
+
+/**
+ * Wordt aangeroepen na uitloggen: ruim listener op, val terug op localStorage.
+ */
+function onSignedOut() {
+  if (cloud.unsubscribe) {
+    cloud.unsubscribe();
+    cloud.unsubscribe = null;
+  }
+  cloud.user = null;
+  updateAuthUI(null);
+  // Lokale data blijft staan; er wordt simpelweg niets meer geüpload.
+}
+
+/**
+ * Update de header: toon "Inloggen" of de naam van de gebruiker met "Uitloggen".
+ */
+function updateAuthUI(user) {
+  const btnIn   = document.getElementById('btn-sign-in');
+  const info    = document.getElementById('user-info');
+  const nameEl  = document.getElementById('user-name');
+  if (user) {
+    btnIn.style.display   = 'none';
+    info.style.display    = '';
+    nameEl.textContent    = user.displayName || user.email || 'Ingelogd';
+  } else {
+    btnIn.style.display   = '';
+    info.style.display    = 'none';
+    nameEl.textContent    = '';
+  }
+}
+
+/**
+ * Bindt knoppen en start de auth-listener.
+ */
+function initCloudSync() {
+  document.getElementById('btn-sign-in').addEventListener('click', async () => {
+    try {
+      await signInWithGoogle();
+      // De rest gaat via onAuthChange hieronder
+    } catch (err) {
+      if (err.code !== 'auth/popup-closed-by-user' &&
+          err.code !== 'auth/cancelled-popup-request') {
+        console.warn('Inloggen mislukt:', err);
+        alert('Inloggen is niet gelukt: ' + (err.message || err.code));
+      }
+    }
+  });
+
+  document.getElementById('btn-sign-out').addEventListener('click', async () => {
+    await signOutUser();
+    // De rest gaat via onAuthChange hieronder
+  });
+
+  // Reageert op zowel handmatig inloggen als automatisch herstel bij paginalading
+  onAuthChange((user) => {
+    if (user) onSignedIn(user);
+    else      onSignedOut();
+  });
+}
+
 /* ── INITIALISATIE ────────────────────────────────────────────── */
 renderAll();
+initCloudSync();

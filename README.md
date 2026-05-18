@@ -13,6 +13,8 @@ Open `index.html` door erop te dubbelklikken. De app opent in je standaardbrowse
 | `index.html` | HTML-structuur en alle modals |
 | `style.css`  | Opmaak (kleuren, layout, responsief) |
 | `app.js`     | Alle logica, opgesplitst in genummerde secties |
+| `firebase-sync.js` | Firebase Authentication en Firestore-koppeling |
+| `manifest.json` / `icon.svg` / `sw.js` | PWA-bestanden (installeerbaar, offline) |
 | `README.md`  | Dit bestand |
 
 ## Layout
@@ -33,6 +35,17 @@ De code is ingedeeld in zeven secties, herkenbaar aan de kopregel `// ── N. 
 5. **Categoriebeheer** — toevoegen, hernoemen, verwijderen met taakbehoud
 6. **Export / Import** — JSON-bestand downloaden of inladen
 7. **Event-listeners & initialisatie** — alle DOM-koppelingen en opstartcode
+8. **Cloud-sync** — Firebase Auth + Firestore: inloggen, ophalen, schrijven en realtime listener
+
+## Cloud-synchronisatie
+
+Zonder inloggen werkt de app volledig lokaal via `localStorage` (privé op het apparaat).
+
+Met inloggen via Google synchroniseren taken en categorieën realtime tussen al je apparaten via Firestore. `localStorage` blijft fungeren als offline cache, zodat de app ook werkt zonder internet en wijzigingen automatisch worden geüpload zodra je weer online bent.
+
+Bij de eerste keer inloggen waar zowel het apparaat als de cloud al data bevatten verschijnt een dialoog om te kiezen welke set behouden moet blijven. In andere situaties (één van beide leeg) gaat de migratie automatisch.
+
+De Firestore security rules staan zo dat alleen jij (ingelogd) je eigen documentpad `users/{uid}` kunt lezen en schrijven.
 
 ## Datumherkenning
 

@@ -31,10 +31,19 @@
     <div class="header-inner">
       <h1 class="app-title">Takenlijst</h1>
       <div class="header-actions">
-        <button id="btn-categories"    class="btn btn-ghost">Categorieën</button>
-        <button id="btn-export"        class="btn btn-ghost">Exporteren</button>
+        <button id="btn-categories"     class="btn btn-ghost">Categorieën</button>
+        <button id="btn-export"         class="btn btn-ghost">Exporteren</button>
         <button id="btn-import-trigger" class="btn btn-ghost">Importeren</button>
         <input type="file" id="file-import" accept=".json" style="display:none;" />
+
+        <!-- Auth-gebied: wisselt tussen "Inloggen" en de gebruikersinfo -->
+        <div class="auth-area" id="auth-area">
+          <button id="btn-sign-in" class="btn btn-primary btn-sm">Inloggen</button>
+          <div id="user-info" class="user-info" style="display:none;">
+            <span id="user-name" class="user-name"></span>
+            <button id="btn-sign-out" class="btn btn-ghost btn-sm">Uitloggen</button>
+          </div>
+        </div>
       </div>
     </div>
   </header>
@@ -186,6 +195,35 @@
     </div>
   </div>
 
+  <!-- Migratie-dialoog: toont als zowel lokaal als cloud data bevatten -->
+  <div class="modal-overlay" id="modal-migrate" style="display:none;">
+    <div class="modal">
+      <div class="modal-header">
+        <h2 class="modal-title">Welke gegevens wil je gebruiken?</h2>
+      </div>
+      <div class="modal-body">
+        <p class="confirm-message">
+          Er staan al taken in de cloud én op dit apparaat. Welke wil je houden?
+          De andere set wordt overschreven.
+        </p>
+        <div class="migrate-counts">
+          <div class="migrate-choice" id="migrate-local-info">
+            <strong>Lokaal</strong>
+            <span id="migrate-local-counts">—</span>
+          </div>
+          <div class="migrate-choice" id="migrate-remote-info">
+            <strong>In de cloud</strong>
+            <span id="migrate-remote-counts">—</span>
+          </div>
+        </div>
+        <div class="form-actions">
+          <button id="btn-migrate-use-remote" class="btn btn-primary">Cloud gebruiken</button>
+          <button id="btn-migrate-use-local"  class="btn btn-ghost">Lokale gebruiken</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
   <!-- Dialoog: categorie verwijderen met taken -->
   <div class="modal-overlay" id="modal-delete-category" style="display:none;">
     <div class="modal modal--sm">
@@ -207,7 +245,7 @@
     </div>
   </div>
 
-  <script src="app.js"></script>
+  <script type="module" src="app.js"></script>
 
   <!-- PWA: registreer de service worker voor offline-werking -->
   <script>
