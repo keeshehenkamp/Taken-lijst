@@ -930,6 +930,18 @@ function renderAll() {
 
 const BRIEFING_KEY = 'takenlijst:lastBriefing';
 
+// Een "nieuwe dag" voor de briefing begint pas om 04:00. Zo krijg je 's nachts
+// (bijv. om 02:00) niet alvast de briefing van morgen — handig als je laat werkt.
+const BRIEFING_DAY_CUTOFF_HOUR = 4;
+
+function logicalTodayISO() {
+  const now = new Date();
+  if (now.getHours() < BRIEFING_DAY_CUTOFF_HOUR) {
+    now.setDate(now.getDate() - 1);
+  }
+  return toISODate(now);
+}
+
 function greetingForHour(h) {
   if (h < 6)  return 'Goedenacht';
   if (h < 12) return 'Goedemorgen';
@@ -946,7 +958,7 @@ function formatBriefingDate(d) {
 }
 
 function maybeShowBriefing() {
-  const todayISO = toISODate(new Date());
+  const todayISO = logicalTodayISO();
   if (localStorage.getItem(BRIEFING_KEY) === todayISO) return;
 
   // Verzamel relevante taken
