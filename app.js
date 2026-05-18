@@ -916,7 +916,101 @@ function renderAll() {
   renderCategories();
   renderTasks();
   renderStats();
+  maybeShowBriefing();
 }
+
+/* ── Ochtend-briefing ─────────────────────────────────────────
+   Toont één keer per dag bij de eerste open een overzicht met:
+   - Taken die te laat zijn
+   - Taken voor vandaag
+   - Openstaande Hoog-prio taken
+   Zodra getoond wordt de datum in localStorage bewaard zodat
+   hij die dag niet opnieuw verschijnt.
+─────────────────────────────────────────────────────────────── */
+
+const BRIEFING_KEY = 'takenlijst:lastBriefing';
+
+function greetingForHour(h) {
+  if (h < 6)  return 'Goedenacht';
+  if (h < 12) return 'Goedemorgen';
+  if (h < 18) return 'Goedemiddag';
+  return 'Goedenavond';
+}
+
+function formatBriefingDate(d) {
+  const dagen = ['zondag', 'maandag', 'dinsdag', 'woensdag',
+                 'donderdag', 'vrijdag', 'zaterdag'];
+  const maanden = ['januari', 'februari', 'maart', 'april', 'mei', 'juni',
+                   'juli', 'augustus', 'september', 'oktober', 'november', 'december'];
+  return `${dagen[d.getDay()]} ${d.getDate()} ${maanden[d.getMonth()]}`;
+}
+
+function maybeShowBriefing() {
+  const todayISO = toISODate(new Date());
+  if (localStorage.getItem(BRIEFING_KEY) === todayISO) return;
+
+  // Verzamel relevante taken
+  const overdue = state.tasks.filter(t =>
+    !t.done && t.deadline && deadlineStatus(t.deadline) === 'overdue'
+  );
+  const todayTasks = state.tasks.filter(t =>
+    !t.done && taskBucket(t) === 'today'
+  );
+  const highOpen = state.tasks.filter(t =>
+    !t.done && t.priority === 'hoog' &&
+    !overdue.includes(t) && !todayTasks.includes(t)
+  );
+
+  // Niets om te melden? Sla over zonder de vlag te zetten — we proberen het
+  // bij een volgende render opnieuw (bijv. nadat remote-data is binnengekomen).
+  if (overdue.length === 0 && todayTasks.length === 0 && highOpen.length === 0) {
+    return;
+  }
+
+  // Vul de modal
+  const now = new Date();
+  document.getElementById('briefing-greeting').textContent = greetingForHour(now.getHours());
+  document.getElementById('briefing-date').textContent = formatBriefingDate(now);
+
+  renderBriefingSection('overdue', overdue);
+  renderBriefingSection('today',   todayTasks);
+  renderBriefingSection('high',    highOpen);
+
+  // Lege staat — komt niet voor (we returnen hierboven al), maar voor de zekerheid
+  document.getElementById('briefing-empty').style.display = 'none';
+
+  document.getElementById('modal-briefing').style.display = 'flex';
+  localStorage.setItem(BRIEFING_KEY, todayISO);
+}
+
+function renderBriefingSection(kind, tasks) {
+  const section = document.getElementById(`briefing-${kind}-section`);
+  const list    = document.getElementById(`briefing-${kind}-list`);
+  list.innerHTML = '';
+
+  if (tasks.length === 0) {
+    section.style.display = 'none';
+    return;
+  }
+  section.style.display = '';
+
+  // Sorteer op prioriteit + deadline voor leesbaarheid
+  sortTasks(tasks).forEach(t => {
+    const li = document.createElement('li');
+    const title = document.createElement('span');
+    title.textContent = t.title;
+    const meta = document.createElement('span');
+    meta.className = 'briefing-meta';
+    const parts = [];
+    if (t.category) parts.push(t.category);
+    if (t.deadline) parts.push(formatDate(t.deadline));
+    meta.textContent = parts.join(' · ');
+    li.appendChild(title);
+    li.appendChild(meta);
+    list.appendChild(li);
+  });
+}
+
 
 /* ── EVENT-LISTENERS ─────────────────────────────────────────── */
 
@@ -977,6 +1071,14 @@ document.getElementById('btn-confirm-yes').addEventListener('click', () => {
 document.getElementById('btn-confirm-no').addEventListener('click', () => {
   document.getElementById('modal-confirm').style.display = 'none';
   confirmCallback = null;
+});
+
+// Sluitknoppen ochtend-briefing
+document.getElementById('btn-close-briefing').addEventListener('click', () => {
+  document.getElementById('modal-briefing').style.display = 'none';
+});
+document.getElementById('btn-briefing-ok').addEventListener('click', () => {
+  document.getElementById('modal-briefing').style.display = 'none';
 });
 
 // Sluit modals bij klikken buiten het venster

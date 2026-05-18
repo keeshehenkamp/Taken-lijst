@@ -179,6 +179,44 @@
     </div>
   </div>
 
+  <!-- ============================================================
+       OCHTEND-BRIEFING — toont één keer per dag bij eerste open
+  ============================================================ -->
+  <div class="modal-overlay" id="modal-briefing" style="display:none;">
+    <div class="modal">
+      <div class="modal-header">
+        <h2 class="modal-title" id="briefing-greeting">Goedemorgen</h2>
+        <button class="modal-close" id="btn-close-briefing" aria-label="Sluiten">&times;</button>
+      </div>
+      <div class="modal-body">
+        <p class="briefing-date" id="briefing-date"></p>
+
+        <div class="briefing-section briefing-section--overdue" id="briefing-overdue-section" style="display:none;">
+          <h3 class="briefing-section-title">Te laat</h3>
+          <ul class="briefing-list" id="briefing-overdue-list"></ul>
+        </div>
+
+        <div class="briefing-section" id="briefing-today-section" style="display:none;">
+          <h3 class="briefing-section-title">Vandaag</h3>
+          <ul class="briefing-list" id="briefing-today-list"></ul>
+        </div>
+
+        <div class="briefing-section briefing-section--high" id="briefing-high-section" style="display:none;">
+          <h3 class="briefing-section-title">Hoog prioriteit, openstaand</h3>
+          <ul class="briefing-list" id="briefing-high-list"></ul>
+        </div>
+
+        <p class="briefing-empty" id="briefing-empty" style="display:none;">
+          Geen openstaande taken die aandacht nodig hebben. Mooi.
+        </p>
+
+        <div class="form-actions">
+          <button id="btn-briefing-ok" class="btn btn-primary">Beginnen</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
   <!-- Algemene bevestigingsdialoog -->
   <div class="modal-overlay" id="modal-confirm" style="display:none;">
     <div class="modal modal--sm">

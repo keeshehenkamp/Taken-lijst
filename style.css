@@ -502,10 +502,78 @@ body {
 }
 .task-card:hover .task-actions { opacity: 1; }
 
+/* Hoog-prio taken krijgen een subtiele rode linker-accent */
+.task-card[data-priority="hoog"]:not(.done) {
+  border-left: 3px solid var(--danger);
+  padding-left: calc(1rem - 2px);
+}
+
 /* Afgeronde taken */
 .task-card.done { opacity: .55; }
 .task-card.done .task-title { text-decoration: line-through; }
 .task-card.done .date-block { opacity: .7; }
+
+/* ── Ochtend-briefing ────────────────────────────────────────── */
+.briefing-date {
+  font-size: .85rem;
+  color: var(--text-muted);
+  font-style: italic;
+  margin-top: -.25rem;
+}
+
+.briefing-section {
+  display: flex;
+  flex-direction: column;
+  gap: .35rem;
+  padding-top: .85rem;
+  border-top: 1px solid var(--border-soft);
+}
+
+.briefing-section:first-of-type {
+  border-top: none;
+  padding-top: 0;
+}
+
+.briefing-section-title {
+  font-family: var(--font-serif);
+  font-size: .95rem;
+  font-weight: 500;
+  color: var(--text-primary);
+  letter-spacing: -.005em;
+}
+
+.briefing-section--overdue .briefing-section-title { color: var(--danger); }
+.briefing-section--high    .briefing-section-title { color: var(--accent-hover); }
+
+.briefing-list {
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: .25rem;
+}
+
+.briefing-list li {
+  display: flex;
+  justify-content: space-between;
+  gap: .75rem;
+  font-size: .88rem;
+  color: var(--text-primary);
+  padding: .25rem 0;
+}
+
+.briefing-list li .briefing-meta {
+  font-size: .78rem;
+  color: var(--text-muted);
+  white-space: nowrap;
+}
+
+.briefing-empty {
+  font-size: .88rem;
+  color: var(--text-muted);
+  font-style: italic;
+  text-align: center;
+  padding: .5rem 0;
+}
 
 /* ── Chat-paneel ─────────────────────────────────────────────── */
 .chat-header {
