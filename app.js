@@ -884,48 +884,7 @@ function updateCategoryFilters() {
   });
 }
 
-/* ── 6. EXPORT / IMPORT ───────────────────────────────────────── */
-
-/**
- * Exporteert alle data als JSON-bestand dat de browser downloadt.
- */
-function exportData() {
-  const data = { tasks: state.tasks, categories: state.categories };
-  const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
-  const url  = URL.createObjectURL(blob);
-  const a    = document.createElement('a');
-  a.href     = url;
-  a.download = `takenlijst-${toISODate(new Date())}.json`;
-  a.click();
-  URL.revokeObjectURL(url);
-}
-
-/**
- * Importeert data uit een JSON-bestand; vraagt bevestiging eerst.
- */
-function importData(file) {
-  const reader = new FileReader();
-  reader.onload = (e) => {
-    try {
-      const data = JSON.parse(e.target.result);
-      if (!Array.isArray(data.tasks) || !Array.isArray(data.categories)) {
-        alert('Ongeldig bestandsformaat.');
-        return;
-      }
-      openConfirm('Huidige data overschrijven met de geïmporteerde data?', () => {
-        state.tasks      = data.tasks;
-        state.categories = data.categories;
-        persist();
-        renderAll();
-      });
-    } catch {
-      alert('Het bestand kon niet worden gelezen.');
-    }
-  };
-  reader.readAsText(file);
-}
-
-/* ── 7. HULPFUNCTIES & ALGEMENE MODALS ───────────────────────── */
+/* ── 6. HULPFUNCTIES & ALGEMENE MODALS ───────────────────────── */
 
 /**
  * Ontsnapt HTML-speciale tekens om XSS te voorkomen.
@@ -979,18 +938,6 @@ document.getElementById('btn-clear-filters').addEventListener('click', () => {
   document.getElementById('filter-category').value = '';
   document.getElementById('filter-priority').value = '';
   renderTasks();
-});
-
-// Export / Import
-document.getElementById('btn-export').addEventListener('click', exportData);
-document.getElementById('btn-import-trigger').addEventListener('click', () => {
-  document.getElementById('file-import').click();
-});
-document.getElementById('file-import').addEventListener('change', e => {
-  if (e.target.files[0]) {
-    importData(e.target.files[0]);
-    e.target.value = ''; // Reset zodat hetzelfde bestand opnieuw gekozen kan worden
-  }
 });
 
 // Categoriebeheer
@@ -1124,26 +1071,32 @@ async function onSignedIn(user) {
 
   try {
     const remote = await fetchRemoteState(user.uid);
-    const localHasData  = state.tasks.length > 0 || state.categories.length > 0;
-    const remoteHasData = remote && (remote.tasks.length > 0 || remote.categories.length > 0);
+    // We kijken alleen naar TAKEN; categorieën zijn meestal gewoon de defaults
+    // en zouden anders telkens een nutteloze migratie-prompt triggeren.
+    const localHasTasks  = state.tasks.length > 0;
+    const remoteHasTasks = remote && remote.tasks.length > 0;
 
-    if (remoteHasData && localHasData) {
-      // Beide gevuld: vraag de gebruiker
+    if (remoteHasTasks && localHasTasks) {
+      // Beide hebben echte taken: vraag de gebruiker
       const choice = await askMigrationChoice(state, remote);
       if (choice === 'remote') {
         applyRemoteState(remote);
       } else {
-        // Lokale gebruiken: upload naar de cloud (overschrijft remote)
         await pushRemoteState(user.uid, state);
       }
-    } else if (remoteHasData) {
-      // Alleen cloud heeft data
+    } else if (remoteHasTasks) {
+      // Alleen cloud heeft taken — gebruik die (inclusief categorieën)
       applyRemoteState(remote);
-    } else if (localHasData) {
-      // Alleen lokaal heeft data — upload naar cloud
+    } else if (localHasTasks) {
+      // Alleen lokaal heeft taken — upload naar cloud
+      await pushRemoteState(user.uid, state);
+    } else if (remote) {
+      // Geen taken aan beide kanten, maar cloud bestaat — sync categorieën
+      applyRemoteState(remote);
+    } else {
+      // Eerste keer ooit inloggen, helemaal niets — upload onze defaults
       await pushRemoteState(user.uid, state);
     }
-    // Als beide leeg zijn: niets te doen
 
     // Start realtime listener: wijzigingen op andere apparaten verschijnen direct
     cloud.unsubscribe = subscribeRemoteState(user.uid, (remoteState) => {

@@ -789,19 +789,14 @@ body {
   .app-layout {
     grid-template-columns: 1fr;
     gap: 1rem;
-    padding: 1rem 1rem 8rem; /* extra ruimte onderaan voor de chat-balk */
+    padding: 1rem 1rem 2rem;
   }
 
+  /* Chat onder de takenlijst, in normale flow — werkt overal */
   .chat-pane {
-    position: fixed;
-    bottom: 0;
-    left: 0;
-    right: 0;
-    border-radius: var(--radius-lg) var(--radius-lg) 0 0;
-    max-height: 60vh;
-    border-bottom: none;
-    box-shadow: 0 -4px 20px rgba(31,30,27,.08);
-    z-index: 50;
+    position: static;
+    max-height: none;
+    overflow: visible;
   }
 
   .chat-header { padding: .85rem 1.1rem .65rem; }
@@ -810,7 +805,8 @@ body {
 
   .chat-messages {
     min-height: 0;
-    max-height: 35vh;
+    max-height: none;
+    overflow: visible;
   }
 
   /* Op mobiel altijd zichtbaar maken, geen hover-effect */
