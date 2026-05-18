@@ -1,0 +1,222 @@
+<!DOCTYPE html>
+<html lang="nl">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Takenlijst</title>
+
+  <!-- Lettertypen: Source Serif voor koppen, Inter voor de body -->
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link rel="stylesheet"
+        href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=Source+Serif+4:wght@400;500;600&display=swap" />
+
+  <!-- PWA: manifest en iconen -->
+  <link rel="manifest" href="manifest.json" />
+  <link rel="apple-touch-icon" href="icon.svg" />
+  <meta name="theme-color" content="#C96442" />
+  <meta name="mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="default" />
+  <meta name="apple-mobile-web-app-title" content="Taken" />
+
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+
+  <!-- ============================================================
+       HEADER
+  ============================================================ -->
+  <header class="app-header">
+    <div class="header-inner">
+      <h1 class="app-title">Takenlijst</h1>
+      <div class="header-actions">
+        <button id="btn-categories"    class="btn btn-ghost">Categorieën</button>
+        <button id="btn-export"        class="btn btn-ghost">Exporteren</button>
+        <button id="btn-import-trigger" class="btn btn-ghost">Importeren</button>
+        <input type="file" id="file-import" accept=".json" style="display:none;" />
+      </div>
+    </div>
+  </header>
+
+  <!-- ============================================================
+       HOOFDLAYOUT — twee kolommen op desktop, gestapeld op mobiel
+  ============================================================ -->
+  <div class="app-layout">
+
+    <!-- ====== TAKEN-KOLOM (links, breed) =================== -->
+    <main class="tasks-pane">
+
+      <!-- Statistiekenbalk -->
+      <section class="stats-bar" id="stats-bar">
+        <div class="stat-item">
+          <span class="stat-value" id="stat-open">0</span>
+          <span class="stat-label">openstaand</span>
+        </div>
+        <div class="stat-divider"></div>
+        <div class="stat-item">
+          <span class="stat-value" id="stat-done">0</span>
+          <span class="stat-label">afgerond</span>
+        </div>
+        <div class="stat-divider"></div>
+        <div class="stat-item stat-overdue">
+          <span class="stat-value" id="stat-overdue">0</span>
+          <span class="stat-label">te laat</span>
+        </div>
+      </section>
+
+      <!-- Filters en zoeken -->
+      <section class="filters-bar">
+        <input type="text" id="filter-search" class="filter-search"
+               placeholder="Zoeken in taken…" />
+        <select id="filter-category" class="filter-select">
+          <option value="">Alle categorieën</option>
+        </select>
+        <select id="filter-priority" class="filter-select">
+          <option value="">Alle prioriteiten</option>
+          <option value="hoog">Hoog</option>
+          <option value="midden">Midden</option>
+          <option value="laag">Laag</option>
+        </select>
+        <button id="btn-clear-filters" class="btn btn-ghost btn-sm">Wissen</button>
+      </section>
+
+      <!-- Takenoverzicht — gegroepeerd per tijdvak -->
+      <section class="task-groups" id="task-groups"></section>
+      <p class="empty-state" id="empty-state" style="display:none;">
+        Nog geen taken. Voeg er een toe via het paneel rechts.
+      </p>
+
+    </main>
+
+    <!-- ====== CHAT-KOLOM (rechts, smal) ==================== -->
+    <aside class="chat-pane" id="chat-pane">
+      <div class="chat-header">
+        <h2 class="chat-title">Snelle invoer</h2>
+        <p class="chat-subtitle">Typ in gewone taal wat je moet doen.</p>
+      </div>
+
+      <div class="chat-messages" id="chat-messages">
+        <div class="chat-bubble chat-bubble--system">
+          Bijvoorbeeld: <em>"rapport afmaken voor vrijdag"</em> of <em>"tandarts bellen 25 mei"</em>.
+        </div>
+      </div>
+
+      <form class="chat-form" id="chat-form" autocomplete="off">
+        <input type="text" id="chat-input" class="chat-input"
+               placeholder="Wat moet je doen?" />
+        <button type="submit" class="btn btn-primary btn-icon-send" aria-label="Toevoegen">
+          <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M2 8h12M9 3l5 5-5 5"/>
+          </svg>
+        </button>
+      </form>
+    </aside>
+
+  </div>
+
+  <!-- ============================================================
+       CATEGORIEËN MODAL
+  ============================================================ -->
+  <div class="modal-overlay" id="modal-categories" style="display:none;">
+    <div class="modal">
+      <div class="modal-header">
+        <h2 class="modal-title">Categorieën beheren</h2>
+        <button class="modal-close" id="btn-close-categories" aria-label="Sluiten">&times;</button>
+      </div>
+      <div class="modal-body">
+        <ul class="category-list" id="category-list"></ul>
+        <form class="category-add-form" id="category-add-form">
+          <input type="text" id="category-input" class="text-input"
+                 placeholder="Nieuwe categorie…" />
+          <button type="submit" class="btn btn-primary btn-sm">Toevoegen</button>
+        </form>
+      </div>
+    </div>
+  </div>
+
+  <!-- ============================================================
+       TAAK BEWERKEN MODAL
+  ============================================================ -->
+  <div class="modal-overlay" id="modal-edit-task" style="display:none;">
+    <div class="modal">
+      <div class="modal-header">
+        <h2 class="modal-title">Taak bewerken</h2>
+        <button class="modal-close" id="btn-close-edit" aria-label="Sluiten">&times;</button>
+      </div>
+      <div class="modal-body">
+        <div class="form-field">
+          <label class="form-label" for="edit-title">Titel</label>
+          <input type="text" id="edit-title" class="text-input" />
+        </div>
+        <div class="form-field">
+          <label class="form-label" for="edit-category">Categorie</label>
+          <select id="edit-category" class="filter-select"></select>
+        </div>
+        <div class="form-field">
+          <label class="form-label" for="edit-priority">Prioriteit</label>
+          <select id="edit-priority" class="filter-select">
+            <option value="hoog">Hoog</option>
+            <option value="midden">Midden</option>
+            <option value="laag">Laag</option>
+          </select>
+        </div>
+        <div class="form-field">
+          <label class="form-label" for="edit-deadline">Deadline</label>
+          <input type="date" id="edit-deadline" class="text-input" />
+        </div>
+        <div class="form-actions">
+          <button id="btn-save-edit"  class="btn btn-primary">Opslaan</button>
+          <button id="btn-cancel-edit" class="btn btn-ghost">Annuleren</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Algemene bevestigingsdialoog -->
+  <div class="modal-overlay" id="modal-confirm" style="display:none;">
+    <div class="modal modal--sm">
+      <div class="modal-body">
+        <p class="confirm-message" id="confirm-message"></p>
+        <div class="form-actions">
+          <button id="btn-confirm-yes" class="btn btn-danger">Bevestigen</button>
+          <button id="btn-confirm-no"  class="btn btn-ghost">Annuleren</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Dialoog: categorie verwijderen met taken -->
+  <div class="modal-overlay" id="modal-delete-category" style="display:none;">
+    <div class="modal modal--sm">
+      <div class="modal-header">
+        <h2 class="modal-title">Categorie verwijderen</h2>
+      </div>
+      <div class="modal-body">
+        <p id="delete-category-msg"></p>
+        <div class="form-field">
+          <label class="form-label">Verplaats taken naar:</label>
+          <select id="delete-category-target" class="filter-select"></select>
+        </div>
+        <div class="form-actions">
+          <button id="btn-delete-cat-move"          class="btn btn-primary">Verplaatsen en verwijderen</button>
+          <button id="btn-delete-cat-delete-tasks"  class="btn btn-danger">Taken ook verwijderen</button>
+          <button id="btn-delete-cat-cancel"        class="btn btn-ghost">Annuleren</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script src="app.js"></script>
+
+  <!-- PWA: registreer de service worker voor offline-werking -->
+  <script>
+    if ('serviceWorker' in navigator) {
+      window.addEventListener('load', () => {
+        navigator.serviceWorker.register('./sw.js')
+          .catch((err) => console.warn('Service worker registratie mislukt:', err));
+      });
+    }
+  </script>
+</body>
+</html>

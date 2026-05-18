@@ -1,0 +1,12 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
+  <!-- Achtergrond: afgerond vierkant in terracotta -->
+  <rect width="512" height="512" rx="96" fill="#C96442"/>
+  <!-- Drie lijnen die een takenlijst voorstellen -->
+  <rect x="152" y="168" width="208" height="20" rx="10" fill="#FBFAF5" opacity=".95"/>
+  <rect x="152" y="246" width="208" height="20" rx="10" fill="#FBFAF5" opacity=".95"/>
+  <rect x="152" y="324" width="140" height="20" rx="10" fill="#FBFAF5" opacity=".95"/>
+  <!-- Kleine bolletjes als bullet points -->
+  <circle cx="128" cy="178" r="10" fill="#FBFAF5" opacity=".7"/>
+  <circle cx="128" cy="256" r="10" fill="#FBFAF5" opacity=".7"/>
+  <circle cx="128" cy="334" r="10" fill="#FBFAF5" opacity=".7"/>
+</svg>

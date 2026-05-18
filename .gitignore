@@ -1,0 +1,11 @@
+# macOS
+.DS_Store
+.AppleDouble
+.LSOverride
+
+# Editor-mappen
+.vscode/
+.idea/
+
+# Lokale server (niet nodig op GitHub)
+serve.py

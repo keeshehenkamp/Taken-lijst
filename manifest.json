@@ -1,0 +1,18 @@
+{
+  "name": "Takenlijst",
+  "short_name": "Taken",
+  "description": "Persoonlijke takenlijst met deadlines en categorieën",
+  "start_url": "./",
+  "display": "standalone",
+  "orientation": "portrait-primary",
+  "background_color": "#F5F4ED",
+  "theme_color": "#C96442",
+  "icons": [
+    {
+      "src": "./icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ]
+}
