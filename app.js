@@ -333,7 +333,8 @@ function handleChatSubmit(rawInput) {
     `Taak: <strong>${escapeHtml(title || rawInput)}</strong><br>${datumTekst}`
   );
 
-  chatState = { active: true, title: title || rawInput, deadline, category: null, priority: null };
+  chatState = { active: true, title: title || rawInput, deadline,
+                category: null, priority: null, notes: '' };
 
   // Stap 1: categorie kiezen
   const catOpties = state.categories.map(c => ({ label: c, value: c }));
@@ -349,9 +350,57 @@ function handleChatSubmit(rawInput) {
       { label: 'Laag',   value: 'laag'   },
     ], (prio) => {
       chatState.priority = prio;
-      commitTask();
+      // Stap 3: optionele notities
+      startNotesStep();
     });
   });
+}
+
+/**
+ * Toont een optionele notities-stap met een textarea + Overslaan/Toevoegen.
+ * Gebruiker kan vrije tekst (incl. opsommingen) invoeren of overslaan.
+ */
+function startNotesStep() {
+  const wrapper = document.createElement('div');
+  const label = document.createElement('div');
+  label.style.cssText = 'margin-bottom:.4rem;font-size:.88rem;';
+  label.textContent = 'Notities? (optioneel)';
+  wrapper.appendChild(label);
+
+  const ta = document.createElement('textarea');
+  ta.className = 'chat-notes-input';
+  ta.placeholder = 'Bijvoorbeeld een opsomming, op aparte regels…';
+  ta.rows = 3;
+  wrapper.appendChild(ta);
+
+  const row = document.createElement('div');
+  row.className = 'chat-choices';
+
+  const skipBtn = document.createElement('button');
+  skipBtn.className = 'choice-btn';
+  skipBtn.textContent = 'Overslaan';
+
+  const addBtn = document.createElement('button');
+  addBtn.className = 'choice-btn';
+  addBtn.textContent = 'Toevoegen';
+
+  const finish = (notes) => {
+    skipBtn.disabled = true;
+    addBtn.disabled  = true;
+    chatState.notes = notes;
+    commitTask();
+  };
+
+  skipBtn.addEventListener('click', () => finish(''));
+  addBtn .addEventListener('click', () => finish(ta.value.trim()));
+
+  row.appendChild(skipBtn);
+  row.appendChild(addBtn);
+  wrapper.appendChild(row);
+
+  addChatMessage('bot', wrapper);
+  // Direct focus zodat de gebruiker meteen kan typen
+  setTimeout(() => ta.focus(), 50);
 }
 
 /**
@@ -364,6 +413,7 @@ function commitTask() {
     deadline:  chatState.deadline,
     category:  chatState.category,
     priority:  chatState.priority,
+    notes:     chatState.notes || '',
     done:      false,
     createdAt: new Date().toISOString(),
   };
@@ -373,13 +423,10 @@ function commitTask() {
   renderTasks();
   renderStats();
 
-  const catLabel = task.category || 'Geen categorie';
-  addChatMessage('bot',
-    `Taak toegevoegd: <strong>${escapeHtml(task.title)}</strong> — ${catLabel}, ${task.priority}`
-    + (task.deadline ? `, deadline ${formatDate(task.deadline)}` : '')
-  );
-
-  chatState = { active: false, title: '', deadline: null, category: null, priority: null };
+  // Reset state en ruim de chat op zodat alleen het invoerveld overblijft.
+  chatState = { active: false, title: '', deadline: null,
+                category: null, priority: null, notes: '' };
+  chatMessages.innerHTML = '';
   chatInput.disabled = false;
   chatInput.focus();
 }
@@ -551,7 +598,7 @@ function buildTaskCard(task) {
   body.appendChild(meta);
   li.appendChild(body);
 
-  // 4. Actieknoppen (potlood + prullenbak)
+  // 4. Actieknoppen (potlood + prullenbak, en uitklap als er notities zijn)
   const actions = document.createElement('div');
   actions.className = 'task-actions';
 
@@ -570,6 +617,22 @@ function buildTaskCard(task) {
   actions.appendChild(btnEdit);
   actions.appendChild(btnDel);
   li.appendChild(actions);
+
+  // 5. Uitklap-toggle + notities-blok (alleen als er notities zijn)
+  if (task.notes && task.notes.trim()) {
+    const expand = document.createElement('button');
+    expand.className = 'task-expand';
+    expand.title = 'Notities tonen';
+    expand.setAttribute('aria-label', 'Notities tonen');
+    expand.innerHTML = '&#9662;'; // ▾
+    expand.addEventListener('click', () => li.classList.toggle('expanded'));
+    actions.appendChild(expand);
+
+    const notes = document.createElement('div');
+    notes.className = 'task-notes';
+    notes.textContent = task.notes;
+    li.appendChild(notes);
+  }
 
   return li;
 }
@@ -685,6 +748,7 @@ function openEditModal(id) {
   document.getElementById('edit-title').value    = task.title;
   document.getElementById('edit-priority').value = task.priority || 'midden';
   document.getElementById('edit-deadline').value = task.deadline || '';
+  document.getElementById('edit-notes').value    = task.notes || '';
 
   // Vul categorie-dropdown
   const sel = document.getElementById('edit-category');
@@ -708,6 +772,7 @@ function saveEditTask() {
   task.category = document.getElementById('edit-category').value;
   task.priority = document.getElementById('edit-priority').value;
   task.deadline = document.getElementById('edit-deadline').value || null;
+  task.notes    = document.getElementById('edit-notes').value.trim();
 
   persist();
   renderTasks();
@@ -1036,14 +1101,28 @@ chatForm.addEventListener('submit', e => {
 });
 
 // Filters
-document.getElementById('filter-search').addEventListener('input', renderTasks);
+const filterSearchInput = document.getElementById('filter-search');
+const searchWrap        = document.getElementById('search-wrap');
+
+filterSearchInput.addEventListener('input', renderTasks);
 document.getElementById('filter-category').addEventListener('change', renderTasks);
 document.getElementById('filter-priority').addEventListener('change', renderTasks);
 document.getElementById('btn-clear-filters').addEventListener('click', () => {
-  document.getElementById('filter-search').value   = '';
+  filterSearchInput.value = '';
   document.getElementById('filter-category').value = '';
   document.getElementById('filter-priority').value = '';
+  searchWrap.classList.remove('expanded');
   renderTasks();
+});
+
+// Zoeken: klap het invoerveld open bij klik op het vergrootglas;
+// klap weer dicht als het veld leeg is en focus verdwijnt.
+document.getElementById('btn-search-toggle').addEventListener('click', () => {
+  searchWrap.classList.add('expanded');
+  filterSearchInput.focus();
+});
+filterSearchInput.addEventListener('blur', () => {
+  if (!filterSearchInput.value) searchWrap.classList.remove('expanded');
 });
 
 // Categoriebeheer

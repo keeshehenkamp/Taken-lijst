@@ -73,8 +73,17 @@
 
       <!-- Filters en zoeken -->
       <section class="filters-bar">
-        <input type="text" id="filter-search" class="filter-search"
-               placeholder="Zoeken in taken…" />
+        <div class="search-wrap" id="search-wrap">
+          <button id="btn-search-toggle" class="search-toggle" aria-label="Zoeken">
+            <svg width="16" height="16" viewBox="0 0 16 16" fill="none"
+                 stroke="currentColor" stroke-width="2"
+                 stroke-linecap="round" stroke-linejoin="round">
+              <circle cx="7" cy="7" r="5"/>
+              <path d="M11 11l3 3"/>
+            </svg>
+          </button>
+          <input type="text" id="filter-search" class="filter-search" />
+        </div>
         <select id="filter-category" class="filter-select">
           <option value="">Alle categorieën</option>
         </select>
@@ -102,11 +111,7 @@
         <p class="chat-subtitle">Typ in gewone taal wat je moet doen.</p>
       </div>
 
-      <div class="chat-messages" id="chat-messages">
-        <div class="chat-bubble chat-bubble--system">
-          Bijvoorbeeld: <em>"rapport afmaken voor vrijdag"</em> of <em>"tandarts bellen 25 mei"</em>.
-        </div>
-      </div>
+      <div class="chat-messages" id="chat-messages"></div>
 
       <form class="chat-form" id="chat-form" autocomplete="off">
         <input type="text" id="chat-input" class="chat-input"
@@ -170,6 +175,11 @@
         <div class="form-field">
           <label class="form-label" for="edit-deadline">Deadline</label>
           <input type="date" id="edit-deadline" class="text-input" />
+        </div>
+        <div class="form-field">
+          <label class="form-label" for="edit-notes">Notities (optioneel)</label>
+          <textarea id="edit-notes" class="text-input text-area"
+                    rows="4" placeholder="Bijvoorbeeld een opsomming…"></textarea>
         </div>
         <div class="form-actions">
           <button id="btn-save-edit"  class="btn btn-primary">Opslaan</button>

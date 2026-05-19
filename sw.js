@@ -7,7 +7,7 @@
        zodat auth en realtime sync goed blijven werken
    ================================================================ */
 
-const CACHE_NAME = 'takenlijst-v6';
+const CACHE_NAME = 'takenlijst-v7';
 
 const FILES_TO_CACHE = [
   './',

@@ -294,24 +294,55 @@ body {
   flex-wrap: wrap;
 }
 
-.filter-search {
-  flex: 1;
-  min-width: 180px;
-  padding: .55rem .85rem;
+/* Zoeken — standaard alleen een vergrootglas, klap open op klik */
+.search-wrap {
+  display: flex;
+  align-items: center;
+  gap: 0;
+}
+
+.search-toggle {
+  background: var(--bg-surface);
   border: 1px solid var(--border-soft);
   border-radius: var(--radius-sm);
+  width: 36px;
+  height: 36px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  color: var(--text-secondary);
+  transition: background .15s, color .15s, border-color .15s;
+  flex-shrink: 0;
+}
+.search-toggle:hover { color: var(--text-primary); border-color: var(--border-medium); }
+
+.search-wrap.expanded .search-toggle {
+  border-radius: var(--radius-sm) 0 0 var(--radius-sm);
+  border-right-color: transparent;
+}
+
+.filter-search {
+  width: 0;
+  padding: 0;
+  border: 1px solid var(--border-soft);
+  border-left: none;
+  border-radius: 0 var(--radius-sm) var(--radius-sm) 0;
   font-family: var(--font-sans);
   font-size: .88rem;
   background: var(--bg-surface);
   color: var(--text-primary);
-  transition: border-color .15s, background .15s;
+  opacity: 0;
+  transition: width .2s ease, padding .2s ease, opacity .15s;
+  height: 36px;
+  box-sizing: border-box;
 }
-.filter-search::placeholder { color: var(--text-muted); }
-.filter-search:focus {
-  outline: none;
-  border-color: var(--accent);
-  background: var(--bg-surface);
+.search-wrap.expanded .filter-search {
+  width: 220px;
+  padding: 0 .85rem;
+  opacity: 1;
 }
+.filter-search:focus { outline: none; border-color: var(--accent); }
 
 .filter-select {
   padding: .5rem .75rem;
@@ -502,6 +533,39 @@ body {
 }
 .task-card:hover .task-actions { opacity: 1; }
 
+/* Uitklap-toggle voor taken met notities */
+.task-expand {
+  background: transparent;
+  border: none;
+  color: var(--text-muted);
+  cursor: pointer;
+  padding: .25rem .35rem;
+  border-radius: var(--radius-sm);
+  font-size: .8rem;
+  line-height: 1;
+  transition: color .15s, background .15s, transform .15s;
+  flex-shrink: 0;
+}
+.task-expand:hover { color: var(--text-primary); background: var(--bg-hover); }
+.task-card.expanded .task-expand { transform: rotate(180deg); }
+
+/* Notities-blok onder de taak (verschijnt bij uitklappen) */
+.task-notes {
+  grid-column: 1 / -1;
+  margin-top: .55rem;
+  padding: .65rem .85rem;
+  background: var(--bg-page);
+  border: 1px solid var(--border-soft);
+  border-radius: var(--radius-sm);
+  font-size: .85rem;
+  color: var(--text-secondary);
+  line-height: 1.55;
+  white-space: pre-wrap;        /* respecteer regeleinden */
+  word-break: break-word;
+  display: none;                 /* zichtbaar als .expanded */
+}
+.task-card.expanded .task-notes { display: block; }
+
 /* Hoog-prio taken krijgen een subtiele rode linker-accent */
 .task-card[data-priority="hoog"]:not(.done) {
   border-left: 3px solid var(--danger);
@@ -641,6 +705,25 @@ body {
 
 .chat-bubble strong { font-weight: 600; }
 
+/* Textarea voor optionele notities in de chat-flow */
+.chat-notes-input {
+  width: 100%;
+  padding: .55rem .7rem;
+  margin-bottom: .5rem;
+  border: 1px solid var(--border-soft);
+  border-radius: var(--radius-sm);
+  font-family: var(--font-sans);
+  font-size: .85rem;
+  color: var(--text-primary);
+  background: var(--bg-page);
+  resize: vertical;
+  min-height: 60px;
+  line-height: 1.45;
+  box-sizing: border-box;
+}
+.chat-notes-input::placeholder { color: var(--text-muted); }
+.chat-notes-input:focus { outline: none; border-color: var(--accent); }
+
 /* Keuzeknoppen in chat */
 .chat-choices {
   display: flex;
@@ -711,6 +794,13 @@ body {
   background: var(--bg-surface);
 }
 .text-input:focus { outline: none; border-color: var(--accent); }
+
+.text-area {
+  font-family: var(--font-sans);
+  resize: vertical;
+  min-height: 80px;
+  line-height: 1.45;
+}
 
 /* ── Modals ──────────────────────────────────────────────────── */
 .modal-overlay {
