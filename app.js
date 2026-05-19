@@ -295,52 +295,33 @@ function bindAutoCap(el) {
 }
 
 /**
- * Bullet-continuation in textareas: als de huidige regel met "- " begint
- * en de gebruiker drukt Enter, krijgt de volgende regel ook "- ".
- * Een lege "- "-regel wordt verwijderd (uit lijstmodus stappen).
- * Werkt met Enter; Shift+Enter geeft altijd een gewone nieuwe regel.
+ * Bullet-continuation: als de regel waar de cursor staat met "- " begint
+ * en er staat tekst achter, voegt deze functie een "\n- " in. Staat er
+ * alleen "- " (lege bullet), dan wordt die verwijderd zodat de gebruiker
+ * uit lijstmodus stapt. Roept deze functie alleen aan bij plain Enter.
+ *
+ * Geeft true terug als de bullet-actie is uitgevoerd; anders false (en
+ * mag de aanroeper Enter behandelen zoals normaal).
  */
-function bindAutoBullet(el) {
-  el.addEventListener('keydown', (e) => {
-    // Alleen plain Enter; Shift+Enter en Cmd/Ctrl+Enter laten we doorlopen
-    if (e.key !== 'Enter' || e.shiftKey || e.metaKey || e.ctrlKey) return;
+function handleBulletEnter(el) {
+  const pos = el.selectionStart;
+  const value = el.value;
+  const lineStart = value.lastIndexOf('\n', pos - 1) + 1;
+  const line = value.substring(lineStart, pos);
 
-    const value = el.value;
-    const pos   = el.selectionStart;
-    const lineStart = value.lastIndexOf('\n', pos - 1) + 1;
-    const lineEnd   = value.indexOf('\n', pos);
-    const cur       = value.substring(lineStart, lineEnd === -1 ? value.length : lineEnd);
+  if (!line.startsWith('- ')) return false;
 
-    const m = cur.match(/^(\s*)([-–—*•])\s(.*)$/);
-    if (!m) return;
-
-    const indent = m[1];
-    const bullet = m[2];
-    const rest   = m[3];
-
-    // Belangrijk: andere keydown-listeners op hetzelfde element niet meer
-    // laten vuren — anders zou een eventueel submit-handler alsnog indienen.
-    e.preventDefault();
-    e.stopImmediatePropagation();
-
-    if (rest.trim() === '') {
-      // Lege bullet: verwijder hem (uit lijstmodus stappen)
-      const before = value.substring(0, lineStart);
-      const afterEnd = lineEnd === -1 ? value.length : lineEnd;
-      const after = value.substring(afterEnd);
-      el.value = before + after;
-      el.setSelectionRange(lineStart, lineStart);
-    } else {
-      // Continueer bullet op nieuwe regel
-      const insert = '\n' + indent + bullet + ' ';
-      el.value = value.substring(0, pos) + insert + value.substring(pos);
-      const newPos = pos + insert.length;
-      el.setSelectionRange(newPos, newPos);
-    }
-
-    // Trigger input-event zodat eventueel gebonden autocap kan reageren
-    el.dispatchEvent(new Event('input', { bubbles: true }));
-  });
+  if (line === '- ') {
+    // Lege bullet — weghalen, uit lijstmodus
+    el.value = value.substring(0, lineStart) + value.substring(pos);
+    el.selectionStart = el.selectionEnd = lineStart;
+  } else {
+    // Continueer met nieuwe bullet op nieuwe regel
+    const insert = '\n- ';
+    el.value = value.substring(0, pos) + insert + value.substring(pos);
+    el.selectionStart = el.selectionEnd = pos + insert.length;
+  }
+  return true;
 }
 
 /* ── 3. CHAT-FLOW ─────────────────────────────────────────────── */
@@ -483,7 +464,6 @@ function startNotesStep() {
 
   const ta = document.createElement('textarea');
   ta.className = 'chat-notes-input';
-  ta.placeholder = 'Bijvoorbeeld een opsomming. Start een regel met "- " voor een lijst.';
   ta.rows = 3;
   wrapper.appendChild(ta);
 
@@ -511,32 +491,37 @@ function startNotesStep() {
   skipBtn.addEventListener('click', () => finish(''));
   addBtn .addEventListener('click', () => finish(ta.value.trim()));
 
-  // Auto-features op de notities-textarea
   bindAutoCap(ta);
-  bindAutoBullet(ta);
 
-  // Toetsenbord-shortcuts:
-  //  - Enter (zonder shift, niet op een bullet-regel) = toevoegen
-  //  - Shift+Enter = nieuwe regel (default)
-  //  - Cmd/Ctrl+Enter = ook toevoegen
-  //  - Escape = overslaan
+  // Eén keydown-handler die alles regelt:
+  //   - Escape         → notitie overslaan
+  //   - Cmd/Ctrl+Enter → notitie toevoegen (ook op een bullet-regel)
+  //   - Shift+Enter    → gewone nieuwe regel (default browsergedrag)
+  //   - Enter op "- xxx"-regel → ga door met bullet
+  //   - Enter op "- "-regel    → bullet weghalen (uit lijstmodus)
+  //   - Enter overig   → notitie toevoegen
   ta.addEventListener('keydown', (e) => {
     if (e.key === 'Escape') {
       e.preventDefault();
       finish('');
       return;
     }
-    if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) {
+    if (e.key !== 'Enter') return;
+
+    if (e.metaKey || e.ctrlKey) {
       e.preventDefault();
       finish(ta.value.trim());
       return;
     }
-    if (e.key === 'Enter' && !e.shiftKey) {
-      // bindAutoBullet vangt bullet-regels al af via stopImmediatePropagation,
-      // dus als we hier aankomen mag de notitie direct ingediend worden.
+    if (e.shiftKey) return; // gewone nieuwe regel
+
+    // Plain Enter: eerst bullet-logica proberen; lukt dat niet → indienen
+    if (handleBulletEnter(ta)) {
       e.preventDefault();
-      finish(ta.value.trim());
+      return;
     }
+    e.preventDefault();
+    finish(ta.value.trim());
   });
 
   row.appendChild(skipBtn);
@@ -1255,7 +1240,10 @@ bindAutoCap(document.getElementById('edit-notes'));
 bindAutoCap(document.getElementById('category-input'));
 
 // Automatische opsomming in de notities-textarea van de edit-modal
-bindAutoBullet(document.getElementById('edit-notes'));
+document.getElementById('edit-notes').addEventListener('keydown', (e) => {
+  if (e.key !== 'Enter' || e.shiftKey || e.metaKey || e.ctrlKey) return;
+  if (handleBulletEnter(e.target)) e.preventDefault();
+});
 
 // Chat
 chatForm.addEventListener('submit', e => {
