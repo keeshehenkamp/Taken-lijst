@@ -751,29 +751,6 @@ body {
   font-weight: 500;
   cursor: pointer;
   transition: background .15s, color .15s, border-color .15s;
-  display: inline-flex;
-  align-items: center;
-  gap: .35rem;
-}
-
-/* Cijfer-hint voor toetsenbord-sneltoetsen */
-.choice-key {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  min-width: 18px;
-  height: 18px;
-  padding: 0 4px;
-  border-radius: 4px;
-  background: var(--bg-surface-2);
-  color: var(--text-muted);
-  font-size: .7rem;
-  font-weight: 600;
-  font-variant-numeric: tabular-nums;
-}
-.choice-btn.selected .choice-key {
-  background: rgba(255,255,255,.25);
-  color: #FBFAF5;
 }
 .choice-btn:hover {
   background: var(--accent-soft);

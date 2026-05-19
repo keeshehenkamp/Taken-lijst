@@ -125,7 +125,8 @@ function cleanTitle(t) {
     prev = t;
     t = t.replace(PREP_RE, ' ').replace(/\s{2,}/g, ' ').trim();
   } while (t !== prev);
-  return t;
+  // Zorg dat de overgebleven titel met een hoofdletter begint
+  return autoCapitalizeText(t);
 }
 
 /**
@@ -301,7 +302,8 @@ function bindAutoCap(el) {
  */
 function bindAutoBullet(el) {
   el.addEventListener('keydown', (e) => {
-    if (e.key !== 'Enter' || e.shiftKey) return;
+    // Alleen plain Enter; Shift+Enter en Cmd/Ctrl+Enter laten we doorlopen
+    if (e.key !== 'Enter' || e.shiftKey || e.metaKey || e.ctrlKey) return;
 
     const value = el.value;
     const pos   = el.selectionStart;
@@ -309,16 +311,20 @@ function bindAutoBullet(el) {
     const lineEnd   = value.indexOf('\n', pos);
     const cur       = value.substring(lineStart, lineEnd === -1 ? value.length : lineEnd);
 
-    const m = cur.match(/^(\s*)([-*•])\s(.*)$/);
+    const m = cur.match(/^(\s*)([-–—*•])\s(.*)$/);
     if (!m) return;
 
     const indent = m[1];
     const bullet = m[2];
     const rest   = m[3];
 
+    // Belangrijk: andere keydown-listeners op hetzelfde element niet meer
+    // laten vuren — anders zou een eventueel submit-handler alsnog indienen.
+    e.preventDefault();
+    e.stopImmediatePropagation();
+
     if (rest.trim() === '') {
       // Lege bullet: verwijder hem (uit lijstmodus stappen)
-      e.preventDefault();
       const before = value.substring(0, lineStart);
       const afterEnd = lineEnd === -1 ? value.length : lineEnd;
       const after = value.substring(afterEnd);
@@ -326,12 +332,14 @@ function bindAutoBullet(el) {
       el.setSelectionRange(lineStart, lineStart);
     } else {
       // Continueer bullet op nieuwe regel
-      e.preventDefault();
       const insert = '\n' + indent + bullet + ' ';
       el.value = value.substring(0, pos) + insert + value.substring(pos);
       const newPos = pos + insert.length;
       el.setSelectionRange(newPos, newPos);
     }
+
+    // Trigger input-event zodat eventueel gebonden autocap kan reageren
+    el.dispatchEvent(new Event('input', { bubbles: true }));
   });
 }
 
@@ -384,12 +392,8 @@ function addChoiceBubble(vraag, opties, onKeuze) {
   opties.forEach(({ label, value }, idx) => {
     const btn = document.createElement('button');
     btn.className = 'choice-btn';
-    // Toon een klein cijfer als hint voor de sneltoets
-    if (idx < 9) {
-      btn.innerHTML = `<span class="choice-key">${idx + 1}</span> ${label}`;
-    } else {
-      btn.textContent = label;
-    }
+    btn.textContent = label;
+    // Cijfertoetsen 1-9 als verborgen sneltoets (zonder visuele hint)
     btn.addEventListener('click', () => {
       if (btn.disabled) return;
       row.querySelectorAll('.choice-btn').forEach(b => b.classList.remove('selected'));
@@ -474,8 +478,7 @@ function startNotesStep() {
   const wrapper = document.createElement('div');
   const label = document.createElement('div');
   label.style.cssText = 'margin-bottom:.4rem;font-size:.88rem;';
-  label.innerHTML = 'Notities? <span style="color:var(--text-muted);font-size:.78rem;">'
-    + '— Enter = toevoegen, Shift+Enter = nieuwe regel, Esc = overslaan</span>';
+  label.textContent = 'Notities? (optioneel)';
   wrapper.appendChild(label);
 
   const ta = document.createElement('textarea');
@@ -529,17 +532,10 @@ function startNotesStep() {
       return;
     }
     if (e.key === 'Enter' && !e.shiftKey) {
-      // bindAutoBullet behandelt het al voor bullet-regels;
-      // anders submit-en wij hier de notities.
-      const value = ta.value;
-      const pos   = ta.selectionStart;
-      const lineStart = value.lastIndexOf('\n', pos - 1) + 1;
-      const lineEnd   = value.indexOf('\n', pos);
-      const cur = value.substring(lineStart, lineEnd === -1 ? value.length : lineEnd);
-      if (!/^(\s*)([-*•])\s/.test(cur)) {
-        e.preventDefault();
-        finish(ta.value.trim());
-      }
+      // bindAutoBullet vangt bullet-regels al af via stopImmediatePropagation,
+      // dus als we hier aankomen mag de notitie direct ingediend worden.
+      e.preventDefault();
+      finish(ta.value.trim());
     }
   });
 
