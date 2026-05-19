@@ -373,8 +373,11 @@ function addChoiceBubble(vraag, opties, onKeuze) {
   opties.forEach(({ label, value }, idx) => {
     const btn = document.createElement('button');
     btn.className = 'choice-btn';
-    btn.textContent = label;
-    // Cijfertoetsen 1-9 als verborgen sneltoets (zonder visuele hint)
+    if (idx < 9) {
+      btn.innerHTML = `<span class="choice-key">${idx + 1}</span> ${label}`;
+    } else {
+      btn.textContent = label;
+    }
     btn.addEventListener('click', () => {
       if (btn.disabled) return;
       row.querySelectorAll('.choice-btn').forEach(b => b.classList.remove('selected'));
