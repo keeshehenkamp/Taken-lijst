@@ -107,9 +107,31 @@ function today() {
 }
 
 /**
+ * Voorzetsels en woordgroepen die rond een datum mogen staan en samen met
+ * de datum uit de titel verwijderd worden. ("tandarts bellen op 25 mei"
+ * → "tandarts bellen".)
+ */
+const PREP_RE =
+  /(^\s*|\s+)(?:het\s+weekend\s+van|in\s+de\s+week\s+van|op|voor|vanaf|tegen|uiterlijk|rond|tot)\s*(\s+|$)/gi;
+
+/**
+ * Ruimt voorzetsels op die aan begin of einde van de titel zijn blijven
+ * staan nadat de datum verwijderd is.
+ */
+function cleanTitle(t) {
+  if (!t) return '';
+  let prev;
+  do {
+    prev = t;
+    t = t.replace(PREP_RE, ' ').replace(/\s{2,}/g, ' ').trim();
+  } while (t !== prev);
+  return t;
+}
+
+/**
  * Probeert een deadline te herkennen in de invoertekst.
  * Geeft { deadline: 'YYYY-MM-DD' | null, title: string } terug.
- * De datum wordt uit de tekst verwijderd; de rest wordt de titel.
+ * De datum (en eventuele voorzetsels eromheen) wordt uit de tekst verwijderd.
  */
 function parseDateFromText(raw) {
   const text = raw.trim();
@@ -130,7 +152,7 @@ function parseDateFromText(raw) {
   if (/\bvandaag\b/i.test(lower)) {
     deadline = toISODate(today());
     stripMatch('vandaag');
-    return { deadline, title };
+    return { deadline, title: cleanTitle(title) };
   }
 
   // — "morgen"
@@ -138,7 +160,7 @@ function parseDateFromText(raw) {
     const d = today(); d.setDate(d.getDate() + 1);
     deadline = toISODate(d);
     stripMatch('morgen');
-    return { deadline, title };
+    return { deadline, title: cleanTitle(title) };
   }
 
   // — "overmorgen"
@@ -146,7 +168,7 @@ function parseDateFromText(raw) {
     const d = today(); d.setDate(d.getDate() + 2);
     deadline = toISODate(d);
     stripMatch('overmorgen');
-    return { deadline, title };
+    return { deadline, title: cleanTitle(title) };
   }
 
   // — "volgende week"
@@ -154,7 +176,7 @@ function parseDateFromText(raw) {
     const d = today(); d.setDate(d.getDate() + 7);
     deadline = toISODate(d);
     title = text.replace(/\bvolgende\s+week\b/i, '').replace(/\s{2,}/g, ' ').trim();
-    return { deadline, title };
+    return { deadline, title: cleanTitle(title) };
   }
 
   // — "over N dagen/weken/maanden"
@@ -168,7 +190,7 @@ function parseDateFromText(raw) {
     if (unit.startsWith('maand')) d.setMonth(d.getMonth() + n);
     deadline = toISODate(d);
     title = text.replace(overMatch[0], '').replace(/\s{2,}/g, ' ').trim();
-    return { deadline, title };
+    return { deadline, title: cleanTitle(title) };
   }
 
   // — Weekdagnamen (komende weekdag)
@@ -182,7 +204,7 @@ function parseDateFromText(raw) {
       d.setDate(d.getDate() + diff);
       deadline = toISODate(d);
       title = text.replace(re, '').replace(/\s{2,}/g, ' ').trim();
-      return { deadline, title };
+      return { deadline, title: cleanTitle(title) };
     }
   }
 
@@ -197,7 +219,7 @@ function parseDateFromText(raw) {
       if (!isNaN(d.getTime())) {
         deadline = toISODate(d);
         title = text.replace(re, '').replace(/\s{2,}/g, ' ').trim();
-        return { deadline, title };
+        return { deadline, title: cleanTitle(title) };
       }
     }
   }
@@ -213,11 +235,11 @@ function parseDateFromText(raw) {
     if (!isNaN(d.getTime()) && maand >= 1 && maand <= 12) {
       deadline = toISODate(d);
       title = text.replace(numRe, '').replace(/\s{2,}/g, ' ').trim();
-      return { deadline, title };
+      return { deadline, title: cleanTitle(title) };
     }
   }
 
-  return { deadline: null, title };
+  return { deadline: null, title: cleanTitle(title) };
 }
 
 /**
@@ -244,6 +266,73 @@ function deadlineStatus(iso) {
   const morgen = new Date(t); morgen.setDate(t.getDate() + 1);
   if (dl <= morgen) return 'urgent';
   return null;
+}
+
+/**
+ * Zet eerste letter en letter na elke ".", "!", "?" om naar hoofdletter.
+ * Wordt aangeroepen bij elk input-event op gekoppelde velden.
+ */
+function autoCapitalizeText(text) {
+  return text.replace(/(^|[.!?]\s+)([a-zà-ÿ])/g,
+    (_, prefix, letter) => prefix + letter.toUpperCase());
+}
+
+/**
+ * Koppelt automatische hoofdletter-correctie aan een input of textarea.
+ * Cursorpositie blijft behouden tijdens typen.
+ */
+function bindAutoCap(el) {
+  el.addEventListener('input', () => {
+    const pos = el.selectionStart;
+    const before = el.value;
+    const after  = autoCapitalizeText(before);
+    if (after !== before) {
+      el.value = after;
+      el.setSelectionRange(pos, pos);
+    }
+  });
+}
+
+/**
+ * Bullet-continuation in textareas: als de huidige regel met "- " begint
+ * en de gebruiker drukt Enter, krijgt de volgende regel ook "- ".
+ * Een lege "- "-regel wordt verwijderd (uit lijstmodus stappen).
+ * Werkt met Enter; Shift+Enter geeft altijd een gewone nieuwe regel.
+ */
+function bindAutoBullet(el) {
+  el.addEventListener('keydown', (e) => {
+    if (e.key !== 'Enter' || e.shiftKey) return;
+
+    const value = el.value;
+    const pos   = el.selectionStart;
+    const lineStart = value.lastIndexOf('\n', pos - 1) + 1;
+    const lineEnd   = value.indexOf('\n', pos);
+    const cur       = value.substring(lineStart, lineEnd === -1 ? value.length : lineEnd);
+
+    const m = cur.match(/^(\s*)([-*•])\s(.*)$/);
+    if (!m) return;
+
+    const indent = m[1];
+    const bullet = m[2];
+    const rest   = m[3];
+
+    if (rest.trim() === '') {
+      // Lege bullet: verwijder hem (uit lijstmodus stappen)
+      e.preventDefault();
+      const before = value.substring(0, lineStart);
+      const afterEnd = lineEnd === -1 ? value.length : lineEnd;
+      const after = value.substring(afterEnd);
+      el.value = before + after;
+      el.setSelectionRange(lineStart, lineStart);
+    } else {
+      // Continueer bullet op nieuwe regel
+      e.preventDefault();
+      const insert = '\n' + indent + bullet + ' ';
+      el.value = value.substring(0, pos) + insert + value.substring(pos);
+      const newPos = pos + insert.length;
+      el.setSelectionRange(newPos, newPos);
+    }
+  });
 }
 
 /* ── 3. CHAT-FLOW ─────────────────────────────────────────────── */
@@ -290,20 +379,41 @@ function addChoiceBubble(vraag, opties, onKeuze) {
   const row = document.createElement('div');
   row.className = 'chat-choices';
 
-  opties.forEach(({ label, value }) => {
+  const buttons = [];
+
+  opties.forEach(({ label, value }, idx) => {
     const btn = document.createElement('button');
     btn.className = 'choice-btn';
-    btn.textContent = label;
+    // Toon een klein cijfer als hint voor de sneltoets
+    if (idx < 9) {
+      btn.innerHTML = `<span class="choice-key">${idx + 1}</span> ${label}`;
+    } else {
+      btn.textContent = label;
+    }
     btn.addEventListener('click', () => {
-      // Visueel tonen welke optie gekozen is
+      if (btn.disabled) return;
       row.querySelectorAll('.choice-btn').forEach(b => b.classList.remove('selected'));
       btn.classList.add('selected');
-      // Knoppen uitschakelen zodat niet nogmaals geklikt kan worden
       row.querySelectorAll('.choice-btn').forEach(b => b.disabled = true);
+      document.removeEventListener('keydown', keyHandler);
       onKeuze(value);
     });
+    buttons.push(btn);
     row.appendChild(btn);
   });
+
+  // Sneltoetsen 1-9 om een keuze te maken zonder muis
+  const keyHandler = (e) => {
+    // Niet ingrijpen als de gebruiker in een ander tekstveld typt
+    const ae = document.activeElement;
+    if (ae && (ae.tagName === 'INPUT' || ae.tagName === 'TEXTAREA') && !ae.disabled) return;
+    if (!/^[1-9]$/.test(e.key)) return;
+    const idx = parseInt(e.key, 10) - 1;
+    if (idx >= buttons.length) return;
+    e.preventDefault();
+    buttons[idx].click();
+  };
+  document.addEventListener('keydown', keyHandler);
 
   wrapper.appendChild(row);
   addChatMessage('bot', wrapper);
@@ -364,12 +474,13 @@ function startNotesStep() {
   const wrapper = document.createElement('div');
   const label = document.createElement('div');
   label.style.cssText = 'margin-bottom:.4rem;font-size:.88rem;';
-  label.textContent = 'Notities? (optioneel)';
+  label.innerHTML = 'Notities? <span style="color:var(--text-muted);font-size:.78rem;">'
+    + '— Enter = toevoegen, Shift+Enter = nieuwe regel, Esc = overslaan</span>';
   wrapper.appendChild(label);
 
   const ta = document.createElement('textarea');
   ta.className = 'chat-notes-input';
-  ta.placeholder = 'Bijvoorbeeld een opsomming, op aparte regels…';
+  ta.placeholder = 'Bijvoorbeeld een opsomming. Start een regel met "- " voor een lijst.';
   ta.rows = 3;
   wrapper.appendChild(ta);
 
@@ -384,7 +495,10 @@ function startNotesStep() {
   addBtn.className = 'choice-btn';
   addBtn.textContent = 'Toevoegen';
 
+  let done = false;
   const finish = (notes) => {
+    if (done) return;
+    done = true;
     skipBtn.disabled = true;
     addBtn.disabled  = true;
     chatState.notes = notes;
@@ -394,12 +508,46 @@ function startNotesStep() {
   skipBtn.addEventListener('click', () => finish(''));
   addBtn .addEventListener('click', () => finish(ta.value.trim()));
 
+  // Auto-features op de notities-textarea
+  bindAutoCap(ta);
+  bindAutoBullet(ta);
+
+  // Toetsenbord-shortcuts:
+  //  - Enter (zonder shift, niet op een bullet-regel) = toevoegen
+  //  - Shift+Enter = nieuwe regel (default)
+  //  - Cmd/Ctrl+Enter = ook toevoegen
+  //  - Escape = overslaan
+  ta.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape') {
+      e.preventDefault();
+      finish('');
+      return;
+    }
+    if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) {
+      e.preventDefault();
+      finish(ta.value.trim());
+      return;
+    }
+    if (e.key === 'Enter' && !e.shiftKey) {
+      // bindAutoBullet behandelt het al voor bullet-regels;
+      // anders submit-en wij hier de notities.
+      const value = ta.value;
+      const pos   = ta.selectionStart;
+      const lineStart = value.lastIndexOf('\n', pos - 1) + 1;
+      const lineEnd   = value.indexOf('\n', pos);
+      const cur = value.substring(lineStart, lineEnd === -1 ? value.length : lineEnd);
+      if (!/^(\s*)([-*•])\s/.test(cur)) {
+        e.preventDefault();
+        finish(ta.value.trim());
+      }
+    }
+  });
+
   row.appendChild(skipBtn);
   row.appendChild(addBtn);
   wrapper.appendChild(row);
 
   addChatMessage('bot', wrapper);
-  // Direct focus zodat de gebruiker meteen kan typen
   setTimeout(() => ta.focus(), 50);
 }
 
@@ -585,21 +733,39 @@ function buildTaskCard(task) {
   body.appendChild(meta);
   li.appendChild(body);
 
-  // 4. Actieknoppen (potlood + prullenbak, en uitklap als er notities zijn)
+  // 4. Actieknoppen (potlood + prullenbak)
   const actions = document.createElement('div');
   actions.className = 'task-actions';
 
   const btnEdit = document.createElement('button');
   btnEdit.className = 'btn-icon';
   btnEdit.title = 'Bewerken';
-  btnEdit.innerHTML = '&#9998;';
-  btnEdit.addEventListener('click', () => openEditModal(task.id));
+  btnEdit.setAttribute('aria-label', 'Bewerken');
+  btnEdit.innerHTML = `
+    <svg width="14" height="14" viewBox="0 0 16 16" fill="none"
+         stroke="currentColor" stroke-width="1.5"
+         stroke-linecap="round" stroke-linejoin="round">
+      <path d="M11 1.5l3.5 3.5L5 14.5H1.5V11L11 1.5z"/>
+    </svg>`;
+  btnEdit.addEventListener('click', (e) => {
+    e.stopPropagation();
+    openEditModal(task.id);
+  });
 
   const btnDel = document.createElement('button');
   btnDel.className = 'btn-icon';
   btnDel.title = 'Verwijderen';
-  btnDel.innerHTML = '&#128465;';
-  btnDel.addEventListener('click', () => confirmDeleteTask(task.id));
+  btnDel.setAttribute('aria-label', 'Verwijderen');
+  btnDel.innerHTML = `
+    <svg width="14" height="14" viewBox="0 0 16 16" fill="none"
+         stroke="currentColor" stroke-width="1.5"
+         stroke-linecap="round" stroke-linejoin="round">
+      <path d="M2.5 4h11M6 4V2.5h4V4M4 4.5l.7 9.5h6.6l.7-9.5M6.5 7v5M9.5 7v5"/>
+    </svg>`;
+  btnDel.addEventListener('click', (e) => {
+    e.stopPropagation();
+    confirmDeleteTask(task.id);
+  });
 
   actions.appendChild(btnEdit);
   actions.appendChild(btnDel);
@@ -611,14 +777,30 @@ function buildTaskCard(task) {
     expand.className = 'task-expand';
     expand.title = 'Notities tonen';
     expand.setAttribute('aria-label', 'Notities tonen');
-    expand.innerHTML = '&#9662;'; // ▾
-    expand.addEventListener('click', () => li.classList.toggle('expanded'));
+    expand.innerHTML = `
+      <svg width="12" height="12" viewBox="0 0 12 12" fill="none"
+           stroke="currentColor" stroke-width="1.75"
+           stroke-linecap="round" stroke-linejoin="round">
+        <path d="M3 4.5l3 3 3-3"/>
+      </svg>`;
+    expand.addEventListener('click', (e) => {
+      e.stopPropagation();
+      li.classList.toggle('expanded');
+    });
     actions.appendChild(expand);
 
     const notes = document.createElement('div');
     notes.className = 'task-notes';
     notes.textContent = task.notes;
     li.appendChild(notes);
+
+    // Klik op de taakkaart zelf toggelt ook de notities (handig op mobiel)
+    li.classList.add('has-notes');
+    li.addEventListener('click', (e) => {
+      // Negeer klikken op interactieve elementen (checkbox, knoppen)
+      if (e.target.closest('input, button')) return;
+      li.classList.toggle('expanded');
+    });
   }
 
   return li;
@@ -1069,6 +1251,15 @@ function renderBriefingSection(kind, tasks) {
 
 
 /* ── EVENT-LISTENERS ─────────────────────────────────────────── */
+
+// Automatische hoofdletters op alle tekstvelden in de app
+bindAutoCap(chatInput);
+bindAutoCap(document.getElementById('edit-title'));
+bindAutoCap(document.getElementById('edit-notes'));
+bindAutoCap(document.getElementById('category-input'));
+
+// Automatische opsomming in de notities-textarea van de edit-modal
+bindAutoBullet(document.getElementById('edit-notes'));
 
 // Chat
 chatForm.addEventListener('submit', e => {

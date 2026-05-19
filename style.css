@@ -152,13 +152,16 @@ body {
   border: none;
   color: var(--text-muted);
   cursor: pointer;
-  padding: .35rem .45rem;
+  padding: .35rem;
   border-radius: var(--radius-sm);
-  font-size: .9rem;
-  line-height: 1;
+  line-height: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
   transition: color .15s, background .15s;
 }
 .btn-icon:hover { color: var(--text-primary); background: var(--bg-hover); }
+.btn-icon svg { display: block; }
 
 /* ── Auth-gebied in de header ────────────────────────────────── */
 .auth-area {
@@ -572,6 +575,11 @@ body {
   padding-left: calc(1rem - 2px);
 }
 
+/* Taken met notities: muiscursor wordt een pointer, klik = toggle */
+.task-card.has-notes { cursor: pointer; }
+.task-card.has-notes input,
+.task-card.has-notes button { cursor: pointer; }
+
 /* Afgeronde taken */
 .task-card.done { opacity: .55; }
 .task-card.done .task-title { text-decoration: line-through; }
@@ -743,6 +751,29 @@ body {
   font-weight: 500;
   cursor: pointer;
   transition: background .15s, color .15s, border-color .15s;
+  display: inline-flex;
+  align-items: center;
+  gap: .35rem;
+}
+
+/* Cijfer-hint voor toetsenbord-sneltoetsen */
+.choice-key {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 18px;
+  height: 18px;
+  padding: 0 4px;
+  border-radius: 4px;
+  background: var(--bg-surface-2);
+  color: var(--text-muted);
+  font-size: .7rem;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+.choice-btn.selected .choice-key {
+  background: rgba(255,255,255,.25);
+  color: #FBFAF5;
 }
 .choice-btn:hover {
   background: var(--accent-soft);
