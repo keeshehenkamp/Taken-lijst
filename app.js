@@ -452,25 +452,12 @@ function sortTasks(tasks) {
 }
 
 /**
- * Leest de huidige filterwaarden uit de UI.
- */
-function getFilters() {
-  return {
-    search:   document.getElementById('filter-search').value.trim().toLowerCase(),
-    category: document.getElementById('filter-category').value,
-    priority: document.getElementById('filter-priority').value,
-  };
-}
-
-/**
- * Filtert de takenlijst op basis van de actieve filters.
+ * Filtert de takenlijst op basis van het zoekveld.
  */
 function applyFilters(tasks) {
-  const { search, category, priority } = getFilters();
+  const search = document.getElementById('filter-search').value.trim().toLowerCase();
   return tasks.filter(t => {
-    if (search   && !t.title.toLowerCase().includes(search))   return false;
-    if (category && t.category !== category)                    return false;
-    if (priority && t.priority !== priority)                    return false;
+    if (search && !t.title.toLowerCase().includes(search)) return false;
     return true;
   });
 }
@@ -937,16 +924,8 @@ function handleDeleteCategory(idx) {
  * Vult de categorie-filter-dropdowns bij in de filtersbalk en de bewerkingsmodal.
  */
 function updateCategoryFilters() {
-  const sel = document.getElementById('filter-category');
-  const current = sel.value;
-  sel.innerHTML = '<option value="">Alle categorieën</option>';
-  state.categories.forEach(c => {
-    const opt = document.createElement('option');
-    opt.value = c;
-    opt.textContent = c;
-    if (c === current) opt.selected = true;
-    sel.appendChild(opt);
-  });
+  // De filter-dropdown is verwijderd; functie blijft als no-op om alle
+  // bestaande aanroepers werkend te houden zonder kruisreferenties te breken.
 }
 
 /* ── 6. HULPFUNCTIES & ALGEMENE MODALS ───────────────────────── */
@@ -1100,23 +1079,13 @@ chatForm.addEventListener('submit', e => {
   handleChatSubmit(val);
 });
 
-// Filters
+// Zoeken: klap het invoerveld open bij klik op het vergrootglas;
+// klap weer dicht als het veld leeg is en focus verdwijnt.
 const filterSearchInput = document.getElementById('filter-search');
 const searchWrap        = document.getElementById('search-wrap');
 
 filterSearchInput.addEventListener('input', renderTasks);
-document.getElementById('filter-category').addEventListener('change', renderTasks);
-document.getElementById('filter-priority').addEventListener('change', renderTasks);
-document.getElementById('btn-clear-filters').addEventListener('click', () => {
-  filterSearchInput.value = '';
-  document.getElementById('filter-category').value = '';
-  document.getElementById('filter-priority').value = '';
-  searchWrap.classList.remove('expanded');
-  renderTasks();
-});
 
-// Zoeken: klap het invoerveld open bij klik op het vergrootglas;
-// klap weer dicht als het veld leeg is en focus verdwijnt.
 document.getElementById('btn-search-toggle').addEventListener('click', () => {
   searchWrap.classList.add('expanded');
   filterSearchInput.focus();
