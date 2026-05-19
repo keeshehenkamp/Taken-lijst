@@ -981,12 +981,10 @@ body {
     padding: 1rem 1rem 2rem;
   }
 
-  /* Chat onder de takenlijst, in normale flow — werkt overal */
-  .chat-pane {
-    position: static;
-    max-height: none;
-    overflow: visible;
-  }
+  /* Op mobiel staat de chat BOVEN de takenlijst (direct toegankelijk
+     zonder eerst naar beneden te hoeven scrollen). */
+  .chat-pane  { order: 1; position: static; max-height: none; overflow: visible; }
+  .tasks-pane { order: 2; }
 
   .chat-header { padding: .85rem 1.1rem .65rem; }
   .chat-title  { font-size: 1rem; }

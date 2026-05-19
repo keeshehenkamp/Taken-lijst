@@ -112,7 +112,7 @@ function today() {
  * → "tandarts bellen".)
  */
 const PREP_RE =
-  /(^\s*|\s+)(?:het\s+weekend\s+van|in\s+de\s+week\s+van|op|voor|vanaf|tegen|uiterlijk|rond|tot)\s*(\s+|$)/gi;
+  /(^\s*|\s+)(?:het\s+weekend\s+van|in\s+de\s+week\s+van|aankomende|komende|op|voor|vanaf|tegen|uiterlijk|rond|tot)\s*(\s+|$)/gi;
 
 /**
  * Ruimt voorzetsels op die aan begin of einde van de titel zijn blijven
@@ -172,7 +172,29 @@ function parseDateFromText(raw) {
     return { deadline, title: cleanTitle(title) };
   }
 
-  // — "volgende week"
+  // — "aankomende/komende/volgende week/deze week + weekdag"
+  //    bijv. "aankomende zaterdag", "volgende week donderdag"
+  const compoundMatch = lower.match(
+    /\b(aankomende|komende|volgende\s+week|deze\s+week)\s+(maandag|dinsdag|woensdag|donderdag|vrijdag|zaterdag|zondag)\b/
+  );
+  if (compoundMatch) {
+    const prefix  = compoundMatch[1];
+    const dagNaam = compoundMatch[2];
+    const dagNr   = WEEKDAGEN[dagNaam];
+    const d = today();
+    let diff = (dagNr - d.getDay() + 7) % 7;
+    if (diff === 0) diff = 7;       // "aankomende donderdag" op een donderdag = volgende donderdag
+    d.setDate(d.getDate() + diff);
+    if (/volgende/.test(prefix)) {  // "volgende week donderdag" = nog een week erbij
+      d.setDate(d.getDate() + 7);
+    }
+    deadline = toISODate(d);
+    title = text.replace(new RegExp(compoundMatch[0], 'i'), '')
+                .replace(/\s{2,}/g, ' ').trim();
+    return { deadline, title: cleanTitle(title) };
+  }
+
+  // — "volgende week" zonder weekdag erachter
   if (/\bvolgende\s+week\b/i.test(lower)) {
     const d = today(); d.setDate(d.getDate() + 7);
     deadline = toISODate(d);
@@ -1272,39 +1294,6 @@ filterSearchInput.addEventListener('blur', () => {
   if (!filterSearchInput.value) searchWrap.classList.remove('expanded');
 });
 
-// Snelle invoer-knop (plus): zelfde uitklap-patroon als het zoekveld.
-// Na Enter starten we de gewone chat-flow en scrollen naar het chat-paneel
-// zodat de gebruiker de categorie/prioriteit-stappen direct ziet.
-const quickAddWrap  = document.getElementById('quick-add-wrap');
-const quickAddInput = document.getElementById('quick-add-input');
-
-bindAutoCap(quickAddInput);
-
-document.getElementById('btn-quick-add-toggle').addEventListener('click', () => {
-  quickAddWrap.classList.add('expanded');
-  quickAddInput.focus();
-});
-quickAddInput.addEventListener('blur', () => {
-  if (!quickAddInput.value) quickAddWrap.classList.remove('expanded');
-});
-quickAddInput.addEventListener('keydown', (e) => {
-  if (e.key !== 'Enter') return;
-  e.preventDefault();
-  const val = quickAddInput.value;
-  if (!val.trim()) return;
-  quickAddInput.value = '';
-  quickAddWrap.classList.remove('expanded');
-
-  // Start de bestaande chat-flow met deze tekst
-  chatInput.disabled = true;
-  handleChatSubmit(val);
-
-  // Scroll naar het chat-paneel zodat de keuze-stappen zichtbaar worden
-  setTimeout(() => {
-    document.getElementById('chat-pane')
-      .scrollIntoView({ behavior: 'smooth', block: 'start' });
-  }, 50);
-});
 
 // Categoriebeheer
 document.getElementById('btn-categories').addEventListener('click', () => {
