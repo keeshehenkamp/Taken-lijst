@@ -1272,6 +1272,40 @@ filterSearchInput.addEventListener('blur', () => {
   if (!filterSearchInput.value) searchWrap.classList.remove('expanded');
 });
 
+// Snelle invoer-knop (plus): zelfde uitklap-patroon als het zoekveld.
+// Na Enter starten we de gewone chat-flow en scrollen naar het chat-paneel
+// zodat de gebruiker de categorie/prioriteit-stappen direct ziet.
+const quickAddWrap  = document.getElementById('quick-add-wrap');
+const quickAddInput = document.getElementById('quick-add-input');
+
+bindAutoCap(quickAddInput);
+
+document.getElementById('btn-quick-add-toggle').addEventListener('click', () => {
+  quickAddWrap.classList.add('expanded');
+  quickAddInput.focus();
+});
+quickAddInput.addEventListener('blur', () => {
+  if (!quickAddInput.value) quickAddWrap.classList.remove('expanded');
+});
+quickAddInput.addEventListener('keydown', (e) => {
+  if (e.key !== 'Enter') return;
+  e.preventDefault();
+  const val = quickAddInput.value;
+  if (!val.trim()) return;
+  quickAddInput.value = '';
+  quickAddWrap.classList.remove('expanded');
+
+  // Start de bestaande chat-flow met deze tekst
+  chatInput.disabled = true;
+  handleChatSubmit(val);
+
+  // Scroll naar het chat-paneel zodat de keuze-stappen zichtbaar worden
+  setTimeout(() => {
+    document.getElementById('chat-pane')
+      .scrollIntoView({ behavior: 'smooth', block: 'start' });
+  }, 50);
+});
+
 // Categoriebeheer
 document.getElementById('btn-categories').addEventListener('click', () => {
   renderCategories();
