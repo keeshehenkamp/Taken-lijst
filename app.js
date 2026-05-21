@@ -1537,6 +1537,8 @@ async function onSignedIn(user) {
     processPendingURLAction();
   } catch (err) {
     console.warn('Fout tijdens cloud-synchronisatie:', err);
+    // Ook bij een sync-fout de snelkoppeling-actie alsnog lokaal verwerken
+    processPendingURLAction();
     alert('Kon niet synchroniseren met de cloud. Je werkt nu lokaal verder.');
   }
 }
@@ -1635,3 +1637,10 @@ function processPendingURLAction() {
 /* ── INITIALISATIE ────────────────────────────────────────────── */
 renderAll();
 initCloudSync();
+
+// Vangnet: mocht Firebase niet (op tijd) reageren, verwerk de
+// snelkoppeling-actie alsnog na 3 seconden. Is hij al verwerkt, dan is
+// pendingURLAction null en gebeurt er niets.
+if (pendingURLAction) {
+  setTimeout(processPendingURLAction, 3000);
+}
