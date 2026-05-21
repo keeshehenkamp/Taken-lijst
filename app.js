@@ -266,6 +266,36 @@ function parseDateFromText(raw) {
 }
 
 /**
+ * Herkent een prioriteit in vrije tekst en haalt die woordgroep uit de titel.
+ * Geeft { priority: 'hoog' | 'midden' | 'laag' | null, title } terug.
+ * Bijv. "boodschappen met hoge prioriteit" → priority 'hoog', titel "boodschappen".
+ */
+function parsePriorityFromText(text) {
+  let title = text;
+  let priority = null;
+
+  // Volgorde is belangrijk: "niet belangrijk" vóór "belangrijk".
+  const patterns = [
+    { re: /\b(?:met\s+)?(?:een\s+)?niet\s+belangrijke?\b/i,                                   prio: 'laag'   },
+    { re: /\b(?:met\s+)?(?:een\s+)?(?:lage|laag)\s+prioriteit\b/i,                            prio: 'laag'   },
+    { re: /\b(?:met\s+)?(?:een\s+)?(?:hoge|hoog)\s+prioriteit\b/i,                            prio: 'hoog'   },
+    { re: /\b(?:met\s+)?(?:een\s+)?(?:middelmatige|gemiddelde|normale|midden)\s+prioriteit\b/i, prio: 'midden' },
+    { re: /\b(?:heel\s+|zeer\s+)?belangrijke?\b/i,                                            prio: 'hoog'   },
+    { re: /\burgent\b/i,                                                                      prio: 'hoog'   },
+  ];
+
+  for (const { re, prio } of patterns) {
+    if (re.test(title)) {
+      priority = prio;
+      title = title.replace(re, ' ').replace(/\s{2,}/g, ' ').trim();
+      break;
+    }
+  }
+
+  return { priority, title: cleanTitle(title) };
+}
+
+/**
  * Formatteert een YYYY-MM-DD datum naar Nederlandse weergave, bijv. "vr 23 mei".
  */
 function formatDate(iso) {
@@ -624,7 +654,13 @@ function showNotesStep() {
  * en prioriteit "Midden". De gebruiker kan dit achteraf aanpassen.
  */
 function quickAddTask(text) {
-  const { deadline, title } = parseDateFromText(text);
+  // Eerst datum eruit halen, dan prioriteit uit de overgebleven titel
+  const dateResult = parseDateFromText(text);
+  const prioResult = parsePriorityFromText(dateResult.title);
+
+  const title    = prioResult.title;
+  const deadline = dateResult.deadline;
+  const priority = prioResult.priority || 'midden';
   if (!title || !title.trim()) return;
 
   const cat = state.categories.includes('Persoonlijk') ? 'Persoonlijk' : '';
@@ -633,7 +669,7 @@ function quickAddTask(text) {
     title,
     deadline,
     category:  cat,
-    priority:  'midden',
+    priority,
     notes:     '',
     done:      false,
     createdAt: new Date().toISOString(),
@@ -644,7 +680,8 @@ function quickAddTask(text) {
   renderAll();
 
   const datum = deadline ? ` (${formatDate(deadline)})` : '';
-  showToast(`Toegevoegd: ${title}${datum}`);
+  const prioTekst = priority !== 'midden' ? `, ${priority} prioriteit` : '';
+  showToast(`Toegevoegd: ${title}${datum}${prioTekst}`);
 }
 
 /**
