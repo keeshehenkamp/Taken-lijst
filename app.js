@@ -1613,15 +1613,21 @@ function initCloudSync() {
    de taak niet wordt overschreven door binnenkomende cloud-data.
 ─────────────────────────────────────────────────────────────────── */
 let pendingURLAction = null;
-(function parseURLAction() {
+
+/**
+ * Leest ?quickadd= / ?add= uit de URL en zet het klaar als actie.
+ * Geeft true terug als er een actie gevonden is. Schoont de URL daarna op.
+ */
+function queueURLAction() {
   const params = new URLSearchParams(location.search);
   const quick  = params.get('quickadd');
   const ask    = params.get('add');
   if (quick)     pendingURLAction = { text: quick, auto: true };
   else if (ask)  pendingURLAction = { text: ask,   auto: false };
-  // URL opschonen zodat verversen niet nogmaals toevoegt
-  if (pendingURLAction) history.replaceState({}, '', location.pathname);
-})();
+  else           return false;
+  history.replaceState({}, '', location.pathname);
+  return true;
+}
 
 function processPendingURLAction() {
   if (!pendingURLAction) return;
@@ -1633,6 +1639,20 @@ function processPendingURLAction() {
     handleChatSubmit(text);
   }
 }
+
+// Eerste keer bij laden
+queueURLAction();
+
+// Als het tabblad opnieuw getoond wordt (bijv. doordat de snelkoppeling een
+// bestaand tabblad hergebruikt of vanuit de bfcache), opnieuw de URL checken.
+window.addEventListener('pageshow', () => {
+  if (queueURLAction()) processPendingURLAction();
+});
+document.addEventListener('visibilitychange', () => {
+  if (document.visibilityState === 'visible' && queueURLAction()) {
+    processPendingURLAction();
+  }
+});
 
 /* ── INITIALISATIE ────────────────────────────────────────────── */
 renderAll();
