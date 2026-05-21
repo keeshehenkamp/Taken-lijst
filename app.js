@@ -619,6 +619,52 @@ function showNotesStep() {
 }
 
 /**
+ * Voegt direct een taak toe zónder vragen (gebruikt door de spraak-snelkoppeling
+ * via ?quickadd=...). Krijgt standaard categorie "Persoonlijk" (indien aanwezig)
+ * en prioriteit "Midden". De gebruiker kan dit achteraf aanpassen.
+ */
+function quickAddTask(text) {
+  const { deadline, title } = parseDateFromText(text);
+  if (!title || !title.trim()) return;
+
+  const cat = state.categories.includes('Persoonlijk') ? 'Persoonlijk' : '';
+  const task = {
+    id:        uid(),
+    title,
+    deadline,
+    category:  cat,
+    priority:  'midden',
+    notes:     '',
+    done:      false,
+    createdAt: new Date().toISOString(),
+  };
+
+  state.tasks.push(task);
+  persist();
+  renderAll();
+
+  const datum = deadline ? ` (${formatDate(deadline)})` : '';
+  showToast(`Toegevoegd: ${title}${datum}`);
+}
+
+/**
+ * Toont kort een melding onderin het scherm.
+ */
+function showToast(message) {
+  let toast = document.getElementById('toast');
+  if (!toast) {
+    toast = document.createElement('div');
+    toast.id = 'toast';
+    toast.className = 'toast';
+    document.body.appendChild(toast);
+  }
+  toast.textContent = message;
+  toast.classList.add('visible');
+  clearTimeout(toast._timer);
+  toast._timer = setTimeout(() => toast.classList.remove('visible'), 3500);
+}
+
+/**
  * Voegt de taak definitief toe aan de lijst na het doorlopen van de chat-flow.
  */
 function commitTask() {
@@ -1486,6 +1532,9 @@ async function onSignedIn(user) {
         JSON.stringify(remoteState.categories) === JSON.stringify(state.categories);
       if (!same) applyRemoteState(remoteState);
     });
+
+    // Pas nu (na sync) een eventuele snelkoppeling-actie verwerken
+    processPendingURLAction();
   } catch (err) {
     console.warn('Fout tijdens cloud-synchronisatie:', err);
     alert('Kon niet synchroniseren met de cloud. Je werkt nu lokaal verder.');
@@ -1503,6 +1552,9 @@ function onSignedOut() {
   cloud.user = null;
   updateAuthUI(null);
   // Lokale data blijft staan; er wordt simpelweg niets meer geüpload.
+
+  // Niet ingelogd: eventuele snelkoppeling-actie meteen lokaal verwerken
+  processPendingURLAction();
 }
 
 /**
@@ -1550,6 +1602,34 @@ function initCloudSync() {
     if (user) onSignedIn(user);
     else      onSignedOut();
   });
+}
+
+/* ── SPRAAK-SNELKOPPELING (URL-parameters) ────────────────────────
+   ?quickadd=<tekst>  → voegt direct toe, geen vragen (voor Siri/Shortcut)
+   ?add=<tekst>       → vult de chat en doorloopt de gewone flow
+   De actie wordt pas verwerkt nadat de cloud-sync is afgerond, zodat
+   de taak niet wordt overschreven door binnenkomende cloud-data.
+─────────────────────────────────────────────────────────────────── */
+let pendingURLAction = null;
+(function parseURLAction() {
+  const params = new URLSearchParams(location.search);
+  const quick  = params.get('quickadd');
+  const ask    = params.get('add');
+  if (quick)     pendingURLAction = { text: quick, auto: true };
+  else if (ask)  pendingURLAction = { text: ask,   auto: false };
+  // URL opschonen zodat verversen niet nogmaals toevoegt
+  if (pendingURLAction) history.replaceState({}, '', location.pathname);
+})();
+
+function processPendingURLAction() {
+  if (!pendingURLAction) return;
+  const { text, auto } = pendingURLAction;
+  pendingURLAction = null;
+  if (auto) {
+    quickAddTask(text);
+  } else {
+    handleChatSubmit(text);
+  }
 }
 
 /* ── INITIALISATIE ────────────────────────────────────────────── */

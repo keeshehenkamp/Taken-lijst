@@ -860,6 +860,31 @@ body {
   line-height: 1.45;
 }
 
+/* ── Toast (korte melding, bijv. na spraak-toevoegen) ────────── */
+.toast {
+  position: fixed;
+  bottom: 1.5rem;
+  left: 50%;
+  transform: translateX(-50%) translateY(20px);
+  background: var(--text-primary);
+  color: var(--bg-surface);
+  padding: .7rem 1.1rem;
+  border-radius: var(--radius-md);
+  font-size: .88rem;
+  font-weight: 500;
+  box-shadow: var(--shadow-md);
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity .25s ease, transform .25s ease;
+  z-index: 300;
+  max-width: 90vw;
+  text-align: center;
+}
+.toast.visible {
+  opacity: 1;
+  transform: translateX(-50%) translateY(0);
+}
+
 /* ── Modals ──────────────────────────────────────────────────── */
 .modal-overlay {
   position: fixed;
