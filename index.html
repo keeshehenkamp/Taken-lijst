@@ -105,7 +105,8 @@
 
       <form class="chat-form" id="chat-form" autocomplete="off">
         <input type="text" id="chat-input" class="chat-input"
-               placeholder="Wat moet je doen?" />
+               placeholder="Wat moet je doen?"
+               autocapitalize="sentences" autocorrect="on" />
         <button type="submit" class="btn btn-primary btn-icon-send" aria-label="Toevoegen">
           <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
             <path d="M2 8h12M9 3l5 5-5 5"/>
@@ -129,7 +130,8 @@
         <ul class="category-list" id="category-list"></ul>
         <form class="category-add-form" id="category-add-form">
           <input type="text" id="category-input" class="text-input"
-                 placeholder="Nieuwe categorie…" />
+                 placeholder="Nieuwe categorie…"
+                 autocapitalize="sentences" autocorrect="on" />
           <button type="submit" class="btn btn-primary btn-sm">Toevoegen</button>
         </form>
       </div>
@@ -148,7 +150,8 @@
       <div class="modal-body">
         <div class="form-field">
           <label class="form-label" for="edit-title">Titel</label>
-          <input type="text" id="edit-title" class="text-input" />
+          <input type="text" id="edit-title" class="text-input"
+                 autocapitalize="sentences" autocorrect="on" />
         </div>
         <div class="form-field">
           <label class="form-label" for="edit-category">Categorie</label>
@@ -169,7 +172,8 @@
         <div class="form-field">
           <label class="form-label" for="edit-notes">Notities (optioneel)</label>
           <textarea id="edit-notes" class="text-input text-area"
-                    rows="4" placeholder="Bijvoorbeeld een opsomming…"></textarea>
+                    rows="4" autocapitalize="sentences" autocorrect="on"
+                    placeholder="Bijvoorbeeld een opsomming…"></textarea>
         </div>
         <div class="form-actions">
           <button id="btn-save-edit"  class="btn btn-primary">Opslaan</button>

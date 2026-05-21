@@ -348,18 +348,35 @@ function handleBulletEnter(el) {
 
 /* ── 3. CHAT-FLOW ─────────────────────────────────────────────── */
 
-// Bewaar tijdelijk de staat van de lopende invoer
+// Bewaar tijdelijk de staat van de lopende invoer.
+// step bepaalt welke stap getoond wordt: 'category' | 'priority' | 'notes'
 let chatState = {
-  active:    false,  // Er is een vraag bezig
-  title:     '',
-  deadline:  null,
-  category:  null,   // Wordt ingevuld na stap 1
-  priority:  null,   // Wordt ingevuld na stap 2
+  active:   false,
+  rawInput: '',
+  title:    '',
+  deadline: null,
+  category: null,
+  priority: null,
+  notes:    '',
+  step:     null,
 };
+
+// Onthoud de getypte notitie zodat die bewaard blijft bij Terug/opnieuw renderen
+let chatNotesValue = '';
+
+// Verwijzing naar de actieve sneltoets-listener (1-9), zodat we die kunnen opruimen
+let currentChoiceKeyHandler = null;
 
 const chatMessages = document.getElementById('chat-messages');
 const chatInput    = document.getElementById('chat-input');
 const chatForm     = document.getElementById('chat-form');
+
+function clearChoiceKeyHandler() {
+  if (currentChoiceKeyHandler) {
+    document.removeEventListener('keydown', currentChoiceKeyHandler);
+    currentChoiceKeyHandler = null;
+  }
+}
 
 /**
  * Voegt een nieuw bericht toe aan de chatweergave.
@@ -385,6 +402,8 @@ function addChatMessage(type, content) {
  * onKeuze(value): callback zodra de gebruiker klikt
  */
 function addChoiceBubble(vraag, opties, onKeuze) {
+  clearChoiceKeyHandler(); // eventuele vorige listener opruimen
+
   const wrapper = document.createElement('div');
   wrapper.innerHTML = `<div style="margin-bottom:.4rem;font-size:.88rem;">${vraag}</div>`;
   const row = document.createElement('div');
@@ -401,11 +420,7 @@ function addChoiceBubble(vraag, opties, onKeuze) {
       btn.textContent = label;
     }
     btn.addEventListener('click', () => {
-      if (btn.disabled) return;
-      row.querySelectorAll('.choice-btn').forEach(b => b.classList.remove('selected'));
-      btn.classList.add('selected');
-      row.querySelectorAll('.choice-btn').forEach(b => b.disabled = true);
-      document.removeEventListener('keydown', keyHandler);
+      clearChoiceKeyHandler();
       onKeuze(value);
     });
     buttons.push(btn);
@@ -414,7 +429,6 @@ function addChoiceBubble(vraag, opties, onKeuze) {
 
   // Sneltoetsen 1-9 om een keuze te maken zonder muis
   const keyHandler = (e) => {
-    // Niet ingrijpen als de gebruiker in een ander tekstveld typt
     const ae = document.activeElement;
     if (ae && (ae.tagName === 'INPUT' || ae.tagName === 'TEXTAREA') && !ae.disabled) return;
     if (!/^[1-9]$/.test(e.key)) return;
@@ -424,63 +438,130 @@ function addChoiceBubble(vraag, opties, onKeuze) {
     buttons[idx].click();
   };
   document.addEventListener('keydown', keyHandler);
+  currentChoiceKeyHandler = keyHandler;
 
   wrapper.appendChild(row);
   addChatMessage('bot', wrapper);
 }
 
 /**
- * Verwerkt de invoer van de gebruiker: herkent datum, toont bevestiging
- * en start de multiplechoice-flow voor categorie en prioriteit.
+ * Verwerkt de eerste invoer: herkent datum en start de keuze-flow.
  */
 function handleChatSubmit(rawInput) {
   if (!rawInput.trim()) return;
   if (chatState.active) {
-    chatInput.disabled = false; // Herstel het invoerveld als de flow al bezig is
+    chatInput.disabled = false;
     return;
   }
 
   const { deadline, title } = parseDateFromText(rawInput);
+  chatState = {
+    active: true, rawInput, title: title || rawInput, deadline,
+    category: null, priority: null, notes: '', step: 'category',
+  };
+  chatNotesValue = '';
+  renderChatFlow();
+}
 
-  // Laat de gebruiker zien wat er ingevoerd is
-  addChatMessage('user', escapeHtml(rawInput));
+/**
+ * Annuleert de lopende invoer volledig en ruimt de chat op.
+ */
+function resetChat() {
+  clearChoiceKeyHandler();
+  chatState = { active: false, rawInput: '', title: '', deadline: null,
+                category: null, priority: null, notes: '', step: null };
+  chatNotesValue = '';
+  chatMessages.innerHTML = '';
+  chatInput.disabled = false;
+}
 
-  // Toon herkenningsbevestiging
-  const datumTekst = deadline
-    ? `Deadline herkend: <strong>${formatDate(deadline)}</strong>`
+/**
+ * Gaat één stap terug in de flow (categorie ← prioriteit ← notities).
+ */
+function goBackStep() {
+  if (chatState.step === 'priority') {
+    chatState.category = null;
+    chatState.step = 'category';
+  } else if (chatState.step === 'notes') {
+    chatState.priority = null;
+    chatState.step = 'priority';
+  }
+  renderChatFlow();
+}
+
+/**
+ * Tekent de hele chat-conversatie opnieuw op basis van chatState.
+ * Hierdoor kunnen we eenvoudig terug-/annuleer-acties ondersteunen.
+ */
+function renderChatFlow() {
+  clearChoiceKeyHandler();
+  chatMessages.innerHTML = '';
+  if (!chatState.active) return;
+
+  // Controlebalk: Terug (vanaf stap 2) en Annuleren
+  const bar = document.createElement('div');
+  bar.className = 'chat-control-bar';
+
+  if (chatState.step === 'priority' || chatState.step === 'notes') {
+    const backBtn = document.createElement('button');
+    backBtn.className = 'chat-control-btn';
+    backBtn.innerHTML = '&#8592; Terug';
+    backBtn.addEventListener('click', goBackStep);
+    bar.appendChild(backBtn);
+  }
+
+  const cancelBtn = document.createElement('button');
+  cancelBtn.className = 'chat-control-btn chat-control-btn--cancel';
+  cancelBtn.innerHTML = '&times; Annuleren';
+  cancelBtn.addEventListener('click', resetChat);
+  bar.appendChild(cancelBtn);
+  chatMessages.appendChild(bar);
+
+  // Ingevoerde taak + herkende datum
+  addChatMessage('user', escapeHtml(chatState.rawInput));
+  const datumTekst = chatState.deadline
+    ? `Deadline herkend: <strong>${formatDate(chatState.deadline)}</strong>`
     : 'Geen deadline herkend.';
   addChatMessage('bot',
-    `Taak: <strong>${escapeHtml(title || rawInput)}</strong><br>${datumTekst}`
-  );
+    `Taak: <strong>${escapeHtml(chatState.title)}</strong><br>${datumTekst}`);
 
-  chatState = { active: true, title: title || rawInput, deadline,
-                category: null, priority: null, notes: '' };
+  // Reeds gemaakte keuzes als context tonen
+  if (chatState.step !== 'category') {
+    addChatMessage('bot', `Categorie: <strong>${chatState.category || 'Geen categorie'}</strong>`);
+  }
+  if (chatState.step === 'notes') {
+    const p = chatState.priority;
+    addChatMessage('bot', `Prioriteit: <strong>${p.charAt(0).toUpperCase() + p.slice(1)}</strong>`);
+  }
 
-  // Stap 1: categorie kiezen
-  const catOpties = state.categories.map(c => ({ label: c, value: c }));
-  catOpties.push({ label: 'Geen categorie', value: '' });
-
-  addChoiceBubble('Welke categorie?', catOpties, (cat) => {
-    chatState.category = cat;
-
-    // Stap 2: prioriteit kiezen
+  // Stap-specifieke inhoud
+  if (chatState.step === 'category') {
+    const opts = state.categories.map(c => ({ label: c, value: c }));
+    opts.push({ label: 'Geen categorie', value: '' });
+    addChoiceBubble('Welke categorie?', opts, (cat) => {
+      chatState.category = cat;
+      chatState.step = 'priority';
+      renderChatFlow();
+    });
+  } else if (chatState.step === 'priority') {
     addChoiceBubble('Welke prioriteit?', [
       { label: 'Hoog',   value: 'hoog'   },
       { label: 'Midden', value: 'midden' },
       { label: 'Laag',   value: 'laag'   },
     ], (prio) => {
       chatState.priority = prio;
-      // Stap 3: optionele notities
-      startNotesStep();
+      chatState.step = 'notes';
+      renderChatFlow();
     });
-  });
+  } else if (chatState.step === 'notes') {
+    showNotesStep();
+  }
 }
 
 /**
- * Toont een optionele notities-stap met een textarea + Overslaan/Toevoegen.
- * Gebruiker kan vrije tekst (incl. opsommingen) invoeren of overslaan.
+ * Toont de optionele notities-stap met textarea + Overslaan/Toevoegen.
  */
-function startNotesStep() {
+function showNotesStep() {
   const wrapper = document.createElement('div');
   const label = document.createElement('div');
   label.style.cssText = 'margin-bottom:.4rem;font-size:.88rem;';
@@ -490,6 +571,9 @@ function startNotesStep() {
   const ta = document.createElement('textarea');
   ta.className = 'chat-notes-input';
   ta.rows = 3;
+  ta.value = chatNotesValue;
+  ta.setAttribute('autocapitalize', 'sentences');
+  ta.addEventListener('input', () => { chatNotesValue = ta.value; });
   wrapper.appendChild(ta);
 
   const row = document.createElement('div');
@@ -507,8 +591,6 @@ function startNotesStep() {
   const finish = (notes) => {
     if (done) return;
     done = true;
-    skipBtn.disabled = true;
-    addBtn.disabled  = true;
     chatState.notes = notes;
     commitTask();
   };
@@ -518,33 +600,12 @@ function startNotesStep() {
 
   bindAutoCap(ta);
 
-  // Eén keydown-handler die alles regelt:
-  //   - Escape         → notitie overslaan
-  //   - Cmd/Ctrl+Enter → notitie toevoegen (ook op een bullet-regel)
-  //   - Shift+Enter    → gewone nieuwe regel (default browsergedrag)
-  //   - Enter op "- xxx"-regel → ga door met bullet
-  //   - Enter op "- "-regel    → bullet weghalen (uit lijstmodus)
-  //   - Enter overig   → notitie toevoegen
   ta.addEventListener('keydown', (e) => {
-    if (e.key === 'Escape') {
-      e.preventDefault();
-      finish('');
-      return;
-    }
+    if (e.key === 'Escape') { e.preventDefault(); finish(''); return; }
     if (e.key !== 'Enter') return;
-
-    if (e.metaKey || e.ctrlKey) {
-      e.preventDefault();
-      finish(ta.value.trim());
-      return;
-    }
+    if (e.metaKey || e.ctrlKey) { e.preventDefault(); finish(ta.value.trim()); return; }
     if (e.shiftKey) return; // gewone nieuwe regel
-
-    // Plain Enter: eerst bullet-logica proberen; lukt dat niet → indienen
-    if (handleBulletEnter(ta)) {
-      e.preventDefault();
-      return;
-    }
+    if (handleBulletEnter(ta)) { e.preventDefault(); chatNotesValue = ta.value; return; }
     e.preventDefault();
     finish(ta.value.trim());
   });
@@ -577,11 +638,7 @@ function commitTask() {
   renderTasks();
   renderStats();
 
-  // Reset state en ruim de chat op zodat alleen het invoerveld overblijft.
-  chatState = { active: false, title: '', deadline: null,
-                category: null, priority: null, notes: '' };
-  chatMessages.innerHTML = '';
-  chatInput.disabled = false;
+  resetChat();
   chatInput.focus();
 }
 
