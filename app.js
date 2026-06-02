@@ -149,6 +149,15 @@ function parseDateFromText(raw) {
     title = text.replace(re, '').replace(/\s{2,}/g, ' ').trim();
   }
 
+  // — "vanochtend", "vanmorgen", "vanmiddag", "vanavond", "vannacht" (= vandaag)
+  //   Moet vóór de "morgen"-check staan zodat "vanmorgen" niet als "morgen" wordt gelezen.
+  const vanTijdRe = /\bvan(?:ochtend|morgen|middag|avond|nacht)\b/i;
+  if (vanTijdRe.test(lower)) {
+    deadline = toISODate(today());
+    title = text.replace(vanTijdRe, '').replace(/\s{2,}/g, ' ').trim();
+    return { deadline, title: cleanTitle(title) };
+  }
+
   // — "vandaag"
   if (/\bvandaag\b/i.test(lower)) {
     deadline = toISODate(today());
@@ -333,17 +342,23 @@ function autoCapitalizeText(text) {
 /**
  * Koppelt automatische hoofdletter-correctie aan een input of textarea.
  * Cursorpositie blijft behouden tijdens typen.
+ * Werkt ook op Mac door compositie-events (accent-toetsen, IME) te ontzien.
  */
 function bindAutoCap(el) {
-  el.addEventListener('input', () => {
-    const pos = el.selectionStart;
+  function applyAutoCap() {
     const before = el.value;
     const after  = autoCapitalizeText(before);
-    if (after !== before) {
-      el.value = after;
-      el.setSelectionRange(pos, pos);
-    }
-  });
+    if (after === before) return;
+    const s  = el.selectionStart  ?? after.length;
+    const ee = el.selectionEnd    ?? after.length;
+    el.value = after;
+    try { el.setSelectionRange(s, ee); } catch (_) {}
+  }
+
+  // Sla events over die deel zijn van een compositie (bijv. accenten op Mac-toetsenbord)
+  el.addEventListener('input', (e) => { if (!e.isComposing) applyAutoCap(); });
+  // Pas ook toe nadat de compositie is afgerond
+  el.addEventListener('compositionend', applyAutoCap);
 }
 
 /**
@@ -555,13 +570,37 @@ function renderChatFlow() {
   addChatMessage('bot',
     `Taak: <strong>${escapeHtml(chatState.title)}</strong><br>${datumTekst}`);
 
-  // Reeds gemaakte keuzes als context tonen
+  // Reeds gemaakte keuzes tonen — klikbaar om te kunnen wijzigen
   if (chatState.step !== 'category') {
-    addChatMessage('bot', `Categorie: <strong>${chatState.category || 'Geen categorie'}</strong>`);
+    const catBubble = document.createElement('div');
+    catBubble.innerHTML =
+      `Categorie: <strong>${escapeHtml(chatState.category || 'Geen categorie')}</strong> `;
+    const catChange = document.createElement('button');
+    catChange.className = 'chat-change-btn';
+    catChange.textContent = 'wijzigen';
+    catChange.addEventListener('click', () => {
+      chatState.category = null;
+      chatState.step = 'category';
+      renderChatFlow();
+    });
+    catBubble.appendChild(catChange);
+    addChatMessage('bot', catBubble);
   }
   if (chatState.step === 'notes') {
     const p = chatState.priority;
-    addChatMessage('bot', `Prioriteit: <strong>${p.charAt(0).toUpperCase() + p.slice(1)}</strong>`);
+    const prioBubble = document.createElement('div');
+    prioBubble.innerHTML =
+      `Prioriteit: <strong>${p.charAt(0).toUpperCase() + p.slice(1)}</strong> `;
+    const prioChange = document.createElement('button');
+    prioChange.className = 'chat-change-btn';
+    prioChange.textContent = 'wijzigen';
+    prioChange.addEventListener('click', () => {
+      chatState.priority = null;
+      chatState.step = 'priority';
+      renderChatFlow();
+    });
+    prioBubble.appendChild(prioChange);
+    addChatMessage('bot', prioBubble);
   }
 
   // Stap-specifieke inhoud
@@ -746,12 +785,14 @@ function sortTasks(tasks) {
 }
 
 /**
- * Filtert de takenlijst op basis van het zoekveld.
+ * Filtert de takenlijst op basis van het zoekveld en de categorie-dropdown.
  */
 function applyFilters(tasks) {
   const search = document.getElementById('filter-search').value.trim().toLowerCase();
+  const cat    = document.getElementById('filter-category')?.value || '';
   return tasks.filter(t => {
     if (search && !t.title.toLowerCase().includes(search)) return false;
+    if (cat && t.category !== cat) return false;
     return true;
   });
 }
@@ -1249,11 +1290,21 @@ function handleDeleteCategory(idx) {
 }
 
 /**
- * Vult de categorie-filter-dropdowns bij in de filtersbalk en de bewerkingsmodal.
+ * Vult de categorie-filter-dropdown in de filterbalk bij.
+ * Bewaart de huidige selectie als die categorie nog bestaat.
  */
 function updateCategoryFilters() {
-  // De filter-dropdown is verwijderd; functie blijft als no-op om alle
-  // bestaande aanroepers werkend te houden zonder kruisreferenties te breken.
+  const sel = document.getElementById('filter-category');
+  if (!sel) return;
+  const current = sel.value;
+  sel.innerHTML = '<option value="">Alle categorieën</option>';
+  state.categories.forEach(c => {
+    const opt = document.createElement('option');
+    opt.value = c;
+    opt.textContent = c;
+    if (c === current) opt.selected = true;
+    sel.appendChild(opt);
+  });
 }
 
 /* ── 6. HULPFUNCTIES & ALGEMENE MODALS ───────────────────────── */
@@ -1425,6 +1476,7 @@ const filterSearchInput = document.getElementById('filter-search');
 const searchWrap        = document.getElementById('search-wrap');
 
 filterSearchInput.addEventListener('input', renderTasks);
+document.getElementById('filter-category').addEventListener('change', renderTasks);
 
 document.getElementById('btn-search-toggle').addEventListener('click', () => {
   searchWrap.classList.add('expanded');

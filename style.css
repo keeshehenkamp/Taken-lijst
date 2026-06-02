@@ -740,6 +740,23 @@ body {
   border-color: #E8B8A8;
 }
 
+/* Inline "wijzigen"-knop naast eerder gekozen categorie of prioriteit */
+.chat-change-btn {
+  background: none;
+  border: none;
+  color: var(--accent);
+  font-family: var(--font-sans);
+  font-size: .76rem;
+  font-weight: 500;
+  text-decoration: underline;
+  cursor: pointer;
+  padding: .1rem .2rem;
+  border-radius: var(--radius-sm);
+  transition: color .15s;
+  vertical-align: baseline;
+}
+.chat-change-btn:hover { color: var(--accent-hover); }
+
 /* Textarea voor optionele notities in de chat-flow */
 .chat-notes-input {
   width: 100%;
