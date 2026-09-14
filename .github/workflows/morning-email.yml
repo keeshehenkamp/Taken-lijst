@@ -1,0 +1,35 @@
+name: Ochtend-email takenlijst
+
+on:
+  schedule:
+    # Elke dag om 07:00 CET (= 06:00 UTC in de winter)
+    # In de zomer (CEST) komt de mail om 08:00 aan — prima voor een ochtendbriefing
+    - cron: '0 6 * * *'
+  workflow_dispatch:  # handmatig starten voor testen — knop op GitHub
+
+jobs:
+  send-morning-email:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Code ophalen
+        uses: actions/checkout@v4
+
+      - name: Node.js instellen
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Afhankelijkheden installeren
+        run: npm install
+        working-directory: ./scripts
+
+      - name: Ochtend-email versturen
+        working-directory: ./scripts
+        env:
+          FIREBASE_SERVICE_ACCOUNT: ${{ secrets.FIREBASE_SERVICE_ACCOUNT }}
+          USER_UID:                  ${{ secrets.USER_UID }}
+          GMAIL_USER:                ${{ secrets.GMAIL_USER }}
+          GMAIL_APP_PASSWORD:        ${{ secrets.GMAIL_APP_PASSWORD }}
+          RECIPIENT_EMAIL:           ${{ secrets.RECIPIENT_EMAIL }}
+        run: node morning-email.js
