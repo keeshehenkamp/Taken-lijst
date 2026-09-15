@@ -502,6 +502,7 @@ function handleChatSubmit(rawInput) {
   const { deadline, title } = parseDateFromText(rawInput);
   chatState = {
     active: true, rawInput, title: title || rawInput, deadline,
+    skipDeadlineStep: deadline !== null,   // sla deadline-stap over als datum al herkend
     category: null, priority: null, notes: '', step: 'category',
   };
   chatNotesValue = '';
@@ -514,22 +515,33 @@ function handleChatSubmit(rawInput) {
 function resetChat() {
   clearChoiceKeyHandler();
   chatState = { active: false, rawInput: '', title: '', deadline: null,
-                category: null, priority: null, notes: '', step: null };
+                skipDeadlineStep: true, category: null, priority: null, notes: '', step: null };
   chatNotesValue = '';
   chatMessages.innerHTML = '';
   chatInput.disabled = false;
 }
 
 /**
- * Gaat één stap terug in de flow (categorie ← prioriteit ← notities).
+ * Gaat één stap terug in de flow.
+ * Volgorde: categorie ← prioriteit ← (deadline) ← notities
  */
 function goBackStep() {
   if (chatState.step === 'priority') {
     chatState.category = null;
     chatState.step = 'category';
-  } else if (chatState.step === 'notes') {
+  } else if (chatState.step === 'deadline') {
     chatState.priority = null;
     chatState.step = 'priority';
+  } else if (chatState.step === 'notes') {
+    if (chatState.skipDeadlineStep) {
+      // Datum was al herkend uit de tekst — ga terug naar prioriteit
+      chatState.priority = null;
+      chatState.step = 'priority';
+    } else {
+      // Gebruiker heeft de deadline-stap doorlopen — ga daarheen terug
+      chatState.deadline = null;
+      chatState.step = 'deadline';
+    }
   }
   renderChatFlow();
 }
@@ -547,7 +559,8 @@ function renderChatFlow() {
   const bar = document.createElement('div');
   bar.className = 'chat-control-bar';
 
-  if (chatState.step === 'priority' || chatState.step === 'notes') {
+  const backSteps = ['priority', 'deadline', 'notes'];
+  if (backSteps.includes(chatState.step)) {
     const backBtn = document.createElement('button');
     backBtn.className = 'chat-control-btn';
     backBtn.innerHTML = '&#8592; Terug';
@@ -562,44 +575,48 @@ function renderChatFlow() {
   bar.appendChild(cancelBtn);
   chatMessages.appendChild(bar);
 
-  // Ingevoerde taak + herkende datum
+  // Ingevoerde taak + herkende datum (alleen bij datum-uit-tekst vermelden)
   addChatMessage('user', escapeHtml(chatState.rawInput));
-  const datumTekst = chatState.deadline
+  const datumTekst = chatState.skipDeadlineStep && chatState.deadline
     ? `Deadline herkend: <strong>${formatDate(chatState.deadline)}</strong>`
-    : 'Geen deadline herkend.';
+    : '';
   addChatMessage('bot',
-    `Taak: <strong>${escapeHtml(chatState.title)}</strong><br>${datumTekst}`);
+    `Taak: <strong>${escapeHtml(chatState.title)}</strong>` +
+    (datumTekst ? `<br>${datumTekst}` : ''));
 
-  // Reeds gemaakte keuzes tonen — klikbaar om te kunnen wijzigen
+  // Reeds gemaakte keuzes als klikbare chip tonen (klik = ga terug naar die stap)
   if (chatState.step !== 'category') {
     const catBubble = document.createElement('div');
-    catBubble.innerHTML =
-      `Categorie: <strong>${escapeHtml(chatState.category || 'Geen categorie')}</strong> `;
-    const catChange = document.createElement('button');
-    catChange.className = 'chat-change-btn';
-    catChange.textContent = 'wijzigen';
-    catChange.addEventListener('click', () => {
+    catBubble.style.cssText = 'font-size:.87rem;';
+    catBubble.innerHTML = 'Categorie: ';
+    const chip = document.createElement('button');
+    chip.className = 'choice-btn choice-btn--chosen';
+    chip.textContent = chatState.category || 'Geen categorie';
+    chip.title = 'Klik om te wijzigen';
+    chip.addEventListener('click', () => {
       chatState.category = null;
       chatState.step = 'category';
       renderChatFlow();
     });
-    catBubble.appendChild(catChange);
+    catBubble.appendChild(chip);
     addChatMessage('bot', catBubble);
   }
-  if (chatState.step === 'notes') {
+
+  if (chatState.step === 'deadline' || chatState.step === 'notes') {
     const p = chatState.priority;
     const prioBubble = document.createElement('div');
-    prioBubble.innerHTML =
-      `Prioriteit: <strong>${p.charAt(0).toUpperCase() + p.slice(1)}</strong> `;
-    const prioChange = document.createElement('button');
-    prioChange.className = 'chat-change-btn';
-    prioChange.textContent = 'wijzigen';
-    prioChange.addEventListener('click', () => {
+    prioBubble.style.cssText = 'font-size:.87rem;';
+    prioBubble.innerHTML = 'Prioriteit: ';
+    const chip = document.createElement('button');
+    chip.className = 'choice-btn choice-btn--chosen';
+    chip.textContent = p.charAt(0).toUpperCase() + p.slice(1);
+    chip.title = 'Klik om te wijzigen';
+    chip.addEventListener('click', () => {
       chatState.priority = null;
       chatState.step = 'priority';
       renderChatFlow();
     });
-    prioBubble.appendChild(prioChange);
+    prioBubble.appendChild(chip);
     addChatMessage('bot', prioBubble);
   }
 
@@ -619,9 +636,12 @@ function renderChatFlow() {
       { label: 'Laag',   value: 'laag'   },
     ], (prio) => {
       chatState.priority = prio;
-      chatState.step = 'notes';
+      // Geen datum in tekst gevonden? Stel datum in als extra stap
+      chatState.step = chatState.skipDeadlineStep ? 'notes' : 'deadline';
       renderChatFlow();
     });
+  } else if (chatState.step === 'deadline') {
+    showDeadlineStep();
   } else if (chatState.step === 'notes') {
     showNotesStep();
   }
@@ -685,6 +705,111 @@ function showNotesStep() {
 
   addChatMessage('bot', wrapper);
   setTimeout(() => ta.focus(), 50);
+}
+
+/**
+ * Toont de deadline-stap met snelknoppen (vandaag, morgen, …) en een datuminvoer.
+ * Verschijnt alleen als er geen datum in de invoertekst is herkend.
+ */
+function showDeadlineStep() {
+  clearChoiceKeyHandler();
+
+  const d = today();
+
+  function daysLater(n) {
+    const r = new Date(d); r.setDate(d.getDate() + n); return r;
+  }
+  function nextWeekday(dayNr) {          // 0 = zo, 1 = ma … 6 = za
+    const diff = (dayNr - d.getDay() + 7) % 7 || 7;
+    return daysLater(diff);
+  }
+
+  const MAANDEN_K = ['jan','feb','mrt','apr','mei','jun','jul','aug','sep','okt','nov','dec'];
+
+  function shortLabel(dt) {
+    const days = ['zo','ma','di','wo','do','vr','za'];
+    return `${days[dt.getDay()]} ${dt.getDate()} ${MAANDEN_K[dt.getMonth()]}`;
+  }
+
+  const morgen  = daysLater(1);
+  const vrijdag = nextWeekday(5);   // komende vrijdag
+  const maandag = nextWeekday(1);   // begin volgende week
+
+  const wrapper = document.createElement('div');
+  const lbl = document.createElement('div');
+  lbl.style.cssText = 'margin-bottom:.5rem;font-size:.88rem;';
+  lbl.textContent = 'Wanneer?';
+  wrapper.appendChild(lbl);
+
+  const row = document.createElement('div');
+  row.className = 'chat-choices';
+
+  let done = false;
+  const choose = (iso) => {
+    if (done) return;
+    done = true;
+    chatState.deadline = iso || null;
+    chatState.step = 'notes';
+    renderChatFlow();
+  };
+
+  const quickOpts = [
+    { label: 'Vandaag', iso: toISODate(d) },
+    { label: 'Morgen',  iso: toISODate(morgen) },
+  ];
+
+  // Vrijdag alleen tonen als het niet vandaag of morgen is
+  const vrijdagISO  = toISODate(vrijdag);
+  const maandagISO  = toISODate(maandag);
+  if (vrijdagISO !== toISODate(d) && vrijdagISO !== toISODate(morgen)) {
+    quickOpts.push({ label: shortLabel(vrijdag), iso: vrijdagISO });
+  }
+  quickOpts.push({ label: shortLabel(maandag), iso: maandagISO });
+
+  const allBtns = [];
+
+  quickOpts.forEach(({ label, iso }) => {
+    const btn = document.createElement('button');
+    btn.className = 'choice-btn';
+    btn.textContent = label;
+    btn.addEventListener('click', () => choose(iso));
+    row.appendChild(btn);
+    allBtns.push(btn);
+  });
+
+  // Datuminvoer voor een specifieke datum
+  const dateInput = document.createElement('input');
+  dateInput.type = 'date';
+  dateInput.className = 'chat-date-input';
+  dateInput.title = 'Kies een datum';
+  dateInput.addEventListener('change', () => {
+    if (dateInput.value) choose(dateInput.value);
+  });
+  row.appendChild(dateInput);
+
+  // Geen deadline
+  const noneBtn = document.createElement('button');
+  noneBtn.className = 'choice-btn';
+  noneBtn.textContent = 'Geen deadline';
+  noneBtn.addEventListener('click', () => choose(null));
+  row.appendChild(noneBtn);
+  allBtns.push(noneBtn);
+
+  // Sneltoetsen 1-9 voor de knoppen
+  const keyHandler = (e) => {
+    const ae = document.activeElement;
+    if (ae && (ae.tagName === 'INPUT' || ae.tagName === 'TEXTAREA') && !ae.disabled) return;
+    if (!/^[1-9]$/.test(e.key)) return;
+    const idx = parseInt(e.key, 10) - 1;
+    if (idx >= allBtns.length) return;
+    e.preventDefault();
+    allBtns[idx].click();
+  };
+  document.addEventListener('keydown', keyHandler);
+  currentChoiceKeyHandler = keyHandler;
+
+  wrapper.appendChild(row);
+  addChatMessage('bot', wrapper);
 }
 
 /**
@@ -1072,6 +1197,7 @@ function toggleTask(id) {
   const task = state.tasks.find(t => t.id === id);
   if (task) {
     task.done = !task.done;
+    task.doneAt = task.done ? new Date().toISOString() : null;
     persist();
     renderTasks();
     renderStats();
