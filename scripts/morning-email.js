@@ -161,48 +161,62 @@ async function summarizeArticle({ title, desc }) {
   }
 }
 
-async function schrijfDagtekst({ today, dow, todayT, overdue, blijftLiggen, weather }) {
-  const w = weather
-    ? `Weer in Amsterdam: ${weather.beschrijving}, nu ${weather.temp}°C (voelt als ${weather.feel}°C), ` +
-      `min ${weather.min}° max ${weather.max}°, ${weather.regenKans}% kans op regen vanmiddag.`
-    : '';
+/**
+ * Zoekt wat er vandaag opvalt aan de lijst. Dit is het ruwe materiaal voor de
+ * openingstekst: dingen die je aan de lijst zelf niet ziet.
+ */
+function signalen({ today, todayT, overdue, upcoming, blijftLiggen, afgerondRecent }) {
+  const uit = [];
 
-  const feiten = [
-    `Vandaag is het ${formatLong(today)}.`,
-    todayT.length
-      ? `Taken met deadline vandaag: ${todayT.map(t => t.title).join('; ')}.`
-      : 'Er staan geen taken met deadline vandaag.',
-    overdue.length
-      ? `Al over de deadline: ${overdue.map(t => `${t.title} (${daysBetween(t.deadline, today)} dagen te laat)`).join('; ')}.`
-      : '',
-    blijftLiggen.length
-      ? `Staat al lang open zonder deadline: ${blijftLiggen.map(t => `${t.title} (${t.dagen} dagen)`).join('; ')}.`
-      : '',
-    w,
-  ].filter(Boolean).join('\n');
+  if (overdue.length) {
+    const ergste = overdue.reduce((a, b) =>
+      daysBetween(a.deadline, today) > daysBetween(b.deadline, today) ? a : b);
+    uit.push(`"${ergste.title}" is ${daysBetween(ergste.deadline, today)} dagen over de deadline.`);
+  }
+  if (blijftLiggen.length) {
+    const oudste = blijftLiggen[0];
+    uit.push(`"${oudste.title}" staat er al ${oudste.dagen} dagen in zonder deadline.`);
+  }
+  if (todayT.length >= 3) uit.push(`Er vallen ${todayT.length} deadlines op vandaag.`);
+  if (!todayT.length && !overdue.length) uit.push('Vandaag staat er niets met een deadline.');
+  if (!afgerondRecent) uit.push('De afgelopen zeven dagen is er niets afgevinkt.');
+
+  // Meerdere taken op dezelfde dag verderop in de week.
+  const perDag = {};
+  upcoming.forEach(t => { perDag[t.deadline] = (perDag[t.deadline] || 0) + 1; });
+  for (const [datum, n] of Object.entries(perDag)) {
+    if (n >= 3) uit.push(`Op ${formatLong(datum)} vallen ${n} deadlines samen.`);
+  }
+
+  return uit;
+}
+
+async function schrijfDagtekst({ today, todayT, overdue, upcoming, blijftLiggen,
+                                 afgerondRecent }) {
+  const opvallend = signalen({ today, todayT, overdue, upcoming, blijftLiggen, afgerondRecent });
 
   const prompt =
-    `Je schrijft de openingstekst van een dagelijkse ochtendmail aan Kees, coassistent kindergeneeskunde.\n\n` +
-    `Schrijf twee korte alinea's Nederlands proza. De eerste gaat over wat er vandaag ligt — ` +
-    `noem de taken bij naam en verwerk ze in gewone zinnen, niet als opsomming. ` +
-    `De tweede alinea gaat over het weer, kort en concreet.\n\n` +
-    `Begin met "Goedemorgen Kees." Geen afsluiting, geen ondertekening, geen kopjes. ` +
-    `Informeel en rustig, niet opgewekt of aanmoedigend. Varieer je formulering van dag tot dag. ` +
-    `Scheid de alinea's met een lege regel.\n\n` +
-    `Feiten:\n${feiten}`;
+    `Je schrijft de opening van een ochtendmail aan Kees, coassistent kindergeneeskunde.\n\n` +
+    `Onder jouw tekst staat al een overzichtelijk lijstje met al zijn taken. ` +
+    `Noem die taken dus NIET op en herhaal geen aantallen — dat leest hij zelf. ` +
+    `Jouw taak is om het enige op te merken wat in dat lijstje niet te zien is.\n\n` +
+    `Schrijf na "Goedemorgen Kees." één alinea van hooguit twee zinnen. ` +
+    `Soms is één zin genoeg — op een dag zonder bijzonderheden mag je het kort houden.\n\n` +
+    `Toon: nuchter, zoals een collega die even iets aanstipt. ` +
+    `Geen aanmoediging, geen complimenten, geen uitroeptekens, geen "succes" of "lekker bezig". ` +
+    `Geen inleidende voegwoorden als "daarnaast", "verder" of "kortom". ` +
+    `Geen advies over hoe hij zijn dag moet indelen, tenzij het echt voor de hand ligt.\n\n` +
+    `Schrijf niets over het weer — dat staat elders in de mail.\n\n` +
+    (opvallend.length
+      ? `Wat opvalt:\n${opvallend.map(s => `- ${s}`).join('\n')}\n\n`
+      : `Er valt vandaag weinig op. Houd het dan bij één neutrale zin.\n\n`) +
+    `Vandaag is het ${formatLong(today)}.`;
 
   try {
-    return await vraagClaude(prompt, 400);
+    return await vraagClaude(prompt, 250);
   } catch (e) {
     console.warn('Dagtekst mislukt:', e.message);
-    const taken = todayT.length
-      ? `Vandaag staat ${todayT.map(t => t.title).join(' en ')} op de planning.`
-      : 'Er staat vandaag niets gepland.';
-    const weer = weather
-      ? ` Buiten is het ${weather.beschrijving.toLowerCase()} en ${weather.temp} graden, ` +
-        `vanmiddag tot ${weather.max}.`
-      : '';
-    return `Goedemorgen Kees.\n\n${taken}${weer}`;
+    return `Goedemorgen Kees.\n\n${opvallend[0] || 'Een dag zonder bijzonderheden.'}`;
   }
 }
 
@@ -216,10 +230,14 @@ async function schrijfWeekterugblik({ today, afgerond, nogOpen, overdue }) {
 
   try {
     return await vraagClaude(
-      `Je schrijft de opening van een vrijdagmail aan Kees, coassistent kindergeneeskunde. ` +
-      `Blik kort terug op de week in twee alinea's Nederlands proza: wat is gelukt, wat bleef liggen. ` +
-      `Begin met "Goedemorgen Kees." Nuchter, geen complimenten of aanmoediging, geen kopjes of opsommingen. ` +
-      `Scheid de alinea's met een lege regel.\n\nFeiten:\n${feiten}`, 400);
+      `Je schrijft de opening van de vrijdagmail aan Kees, coassistent kindergeneeskunde. ` +
+      `Blik kort terug op zijn week: wat is er gelukt, wat bleef liggen.\n\n` +
+      `Onder jouw tekst staat al een lijstje met de openstaande taken, dus som die niet op. ` +
+      `Begin met "Goedemorgen Kees." en schrijf daarna hooguit drie zinnen.\n\n` +
+      `Toon: nuchter en feitelijk, zoals iemand die de week even naloopt. ` +
+      `Geen complimenten, geen aanmoediging, geen uitroeptekens, geen weekendwensen. ` +
+      `Als er weinig is gebeurd, schrijf dat gewoon — verzin er geen positieve draai omheen.\n\n` +
+      `Feiten:\n${feiten}`, 300);
   } catch (e) {
     console.warn('Terugblik mislukt:', e.message);
     return `Goedemorgen Kees.\n\nJe hebt deze week ${afgerond.length} taken afgerond.`;
@@ -249,7 +267,8 @@ function lijst(kop, regels) {
       </p>`).join('')}`;
 }
 
-function buildEmail({ today, dagtekst, dezeWeek, blijftLiggen, vergeetNiet, news, preheader }) {
+function buildEmail({ today, dagtekst, vandaag, dezeWeek, blijftLiggen, vergeetNiet,
+                      weerRegel, news, preheader }) {
   return `<!DOCTYPE html>
 <html lang="nl">
 <head>
@@ -269,9 +288,14 @@ function buildEmail({ today, dagtekst, dezeWeek, blijftLiggen, vergeetNiet, news
 
     ${alineas(dagtekst)}
 
+    ${lijst('Vandaag', vandaag)}
     ${lijst('Verder deze week', dezeWeek)}
     ${lijst('Vergeet niet', vergeetNiet)}
     ${lijst('Blijft liggen', blijftLiggen)}
+
+    ${weerRegel ? `
+      <p style="margin:30px 0 0;font-size:15px;line-height:1.6;color:#8A857B;
+                font-family:${SERIF};font-style:italic;">${weerRegel}</p>` : ''}
 
     ${news.length ? `
       <div style="border-top:1px solid #E2DED5;margin-top:38px;padding-top:30px;">
@@ -354,6 +378,9 @@ async function main() {
     rawNews.map(async n => ({ ...n, summary: await summarizeArticle(n) }))
   );
 
+  const zevenDagen    = addDays(today, -7);
+  const afgerondRecent = tasks.some(t => t.done && t.doneAt && t.doneAt.slice(0,10) >= zevenDagen);
+
   const dagtekst = isVrijdag
     ? await schrijfWeekterugblik({
         today,
@@ -361,11 +388,18 @@ async function main() {
         nogOpen:  [...todayT, ...upcoming],
         overdue,
       })
-    : await schrijfDagtekst({ today, dow, todayT, overdue, blijftLiggen, weather });
+    : await schrijfDagtekst({ today, todayT, overdue, upcoming, blijftLiggen, afgerondRecent });
+
+  const weerRegel = weather
+    ? `${weather.beschrijving}, nu ${weather.temp}° en vanmiddag tot ${weather.max}°` +
+      `${weather.regenKans >= 40 ? `, ${weather.regenKans}% kans op regen` : ''}.`
+    : '';
 
   const html = buildEmail({
     today,
     dagtekst,
+    weerRegel,
+    vandaag:     todayT.map(t => ({ tekst: t.title, bij: '' })),
     dezeWeek:    upcoming.map(t => ({ tekst: t.title, bij: formatShort(t.deadline) })),
     vergeetNiet: [...overdue, ...highPrio].map(t => ({
       tekst: t.title,
