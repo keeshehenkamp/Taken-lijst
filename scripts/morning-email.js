@@ -107,13 +107,9 @@ async function fetchFeed(url, count) {
     const descM  = block.match(/<description>(?:<!\[CDATA\[)?([\s\S]*?)(?:\]\]>)?<\/description>/);
     if (!titleM) continue;
     const title = titleM[1].trim();
-    let desc = descM
+    const desc = descM
       ? descM[1].replace(/<[^>]+>/g, '').replace(/&amp;/g,'&').replace(/&lt;/g,'<').replace(/&gt;/g,'>').trim()
       : '';
-    if (desc.length > 280) {
-      const cut = desc.lastIndexOf('.', 280);
-      desc = cut > 100 ? desc.slice(0, cut + 1) : desc.slice(0, 280) + '…';
-    }
     if (title) items.push({ title, desc });
   }
   return items;
