@@ -2,8 +2,9 @@ name: Ochtend-email takenlijst
 
 on:
   schedule:
-    # Elke dag om 07:00 CET (= 06:00 UTC in de winter)
-    # In de zomer (CEST) komt de mail om 08:00 aan — prima voor een ochtendbriefing
+    # Twee aanlopen: 05:00 UTC is 07:00 in de zomertijd, 06:00 UTC in de wintertijd.
+    # Het script verstuurt hooguit één mail per dag en slaat de verkeerde aanloop over.
+    - cron: '0 5 * * *'
     - cron: '0 6 * * *'
   workflow_dispatch:  # handmatig starten voor testen — knop op GitHub
 

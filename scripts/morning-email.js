@@ -295,10 +295,37 @@ function buildEmail({ today, dagtekst, dezeWeek, blijftLiggen, vergeetNiet, news
 
 // ── Hoofdprogramma ──────────────────────────────────────────────
 
+/**
+ * Bepaalt of deze aanloop de mail van vandaag moet versturen.
+ * De workflow draait twee keer zodat 07:00 Amsterdam in zomer- én wintertijd
+ * geraakt wordt; alleen de aanloop die er als eerste bij is doet het werk.
+ * Een handmatige run via GitHub verstuurt altijd, voor het testen.
+ */
+async function magVersturen(today, marker) {
+  if (process.env.GITHUB_EVENT_NAME === 'workflow_dispatch') return true;
+
+  const uurNL = +new Date().toLocaleString('en-US',
+    { timeZone: 'Europe/Amsterdam', hour: 'numeric', hour12: false });
+  if (uurNL < 7) {
+    console.log(`Nog geen zeven uur in Amsterdam (${uurNL}:00) — overgeslagen.`);
+    return false;
+  }
+
+  const snap = await marker.get();
+  if (snap.exists && snap.data().lastSent === today) {
+    console.log('Vandaag al verstuurd — overgeslagen.');
+    return false;
+  }
+  return true;
+}
+
 async function main() {
   const today = todayNL();
   const dow   = dayOfWeek(today);
   const isVrijdag = dow === 5;
+
+  const marker = db.collection('meta').doc('morning-email');
+  if (!await magVersturen(today, marker)) return;
 
   const snap = await db.collection('users').doc(process.env.USER_UID).get();
   if (!snap.exists) { console.log('Geen data — overgeslagen.'); return; }
@@ -367,6 +394,7 @@ async function main() {
     html,
   });
 
+  await marker.set({ lastSent: today });
   console.log(`✓ Verstuurd voor ${today} — ${news.length} artikelen`);
 }
 
