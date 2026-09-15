@@ -107,9 +107,13 @@ async function fetchFeed(url, count) {
     const descM  = block.match(/<description>(?:<!\[CDATA\[)?([\s\S]*?)(?:\]\]>)?<\/description>/);
     if (!titleM) continue;
     const title = titleM[1].trim();
-    const desc  = descM
-      ? descM[1].replace(/<[^>]+>/g, '').replace(/&amp;/g,'&').replace(/&lt;/g,'<').replace(/&gt;/g,'>').trim().slice(0, 200)
+    let desc = descM
+      ? descM[1].replace(/<[^>]+>/g, '').replace(/&amp;/g,'&').replace(/&lt;/g,'<').replace(/&gt;/g,'>').trim()
       : '';
+    if (desc.length > 280) {
+      const cut = desc.lastIndexOf('.', 280);
+      desc = cut > 100 ? desc.slice(0, cut + 1) : desc.slice(0, 280) + '…';
+    }
     if (title) items.push({ title, desc });
   }
   return items;
@@ -176,8 +180,7 @@ Schrijf 2-3 korte, natuurlijke zinnen in het Nederlands. Informeel maar niet kin
 // ── HTML ────────────────────────────────────────────────────────
 
 function buildEmail({ tasks, today, weather, news, dow, intro }) {
-  const weekStart = addDays(today, -(dow === 0 ? 6 : dow - 1));
-  const weekEnd   = addDays(today, 7);
+  const weekEnd = addDays(today, 7);
 
   const overdue  = sortTasks(tasks.filter(t => !t.done && t.deadline && t.deadline < today));
   const todayT   = sortTasks(tasks.filter(t => !t.done && t.deadline === today));
@@ -189,71 +192,56 @@ function buildEmail({ tasks, today, weather, news, dow, intro }) {
     !overdue.some(x => x === t) && !todayT.some(x => x === t) && !upcoming.some(x => x === t)
   ));
   const vergeetNiet = [...overdue, ...highPrio];
+  const focusTaak   = todayT[0] || overdue[0] || highPrio[0] || null;
 
-  const totalDone    = tasks.filter(t => t.done).length;
-  const totalAll     = tasks.length;
-  const pct          = totalAll ? Math.round((totalDone / totalAll) * 100) : 0;
-  const focusTaak    = todayT[0] || overdue[0] || highPrio[0] || null;
-
-  const li = (t, showDate = false, kleur = '#374151') => {
+  const taakregel = (t, showDate = false, rood = false) => {
     const date = showDate && t.deadline && t.deadline !== today
-      ? ` <span style="color:#9CA3AF;font-size:12px;">${formatShort(t.deadline)}</span>` : '';
-    const dot  = t.priority === 'hoog'
-      ? `<span style="display:inline-block;width:6px;height:6px;background:#EF4444;border-radius:50%;margin-right:8px;vertical-align:middle;"></span>`
-      : `<span style="display:inline-block;width:6px;height:6px;background:#D1D5DB;border-radius:50%;margin-right:8px;vertical-align:middle;"></span>`;
-    return `<tr><td style="padding:7px 0;border-bottom:1px solid #F3F4F6;">
-      ${dot}<span style="color:${kleur};font-size:14px;">${t.title}</span>${date}
-    </td></tr>`;
+      ? `<span style="font-size:12px;color:#A3A3A3;margin-left:6px;">${formatShort(t.deadline)}</span>` : '';
+    const kleur = rood ? '#B91C1C' : '#262626';
+    return `
+      <tr>
+        <td style="padding:9px 0;border-bottom:1px solid #F5F5F5;vertical-align:top;">
+          <span style="font-size:14px;color:${kleur};line-height:1.5;">${t.title}${date}</span>
+        </td>
+      </tr>`;
   };
 
-  const sectie = (label, items, showDate = false, kleur = '#374151', labelKleur = '#6B7280') => {
+  const sectie = (kop, items, showDate = false, rood = false) => {
     if (!items.length) return '';
     return `
-      <div style="margin-bottom:20px;">
-        <div style="font-size:10px;font-weight:700;letter-spacing:.1em;text-transform:uppercase;
-                    color:${labelKleur};margin-bottom:8px;">${label}</div>
+      <div style="margin-bottom:24px;">
+        <div style="font-size:11px;font-weight:600;color:${rood ? '#B91C1C' : '#A3A3A3'};
+                    letter-spacing:.08em;text-transform:uppercase;margin-bottom:10px;">${kop}</div>
         <table style="width:100%;border-collapse:collapse;">
-          ${items.map(t => li(t, showDate, kleur)).join('')}
+          ${items.map(t => taakregel(t, showDate, rood)).join('')}
         </table>
       </div>`;
   };
 
-  const nieuws = news.length ? `
-    <div style="border-top:1px solid #E5E7EB;padding-top:20px;margin-top:4px;">
-      <div style="font-size:10px;font-weight:700;letter-spacing:.1em;text-transform:uppercase;
-                  color:#6B7280;margin-bottom:14px;">Nieuws</div>
-      ${news.map((n, i) => `
-        <div style="${i > 0 ? 'margin-top:14px;padding-top:14px;border-top:1px solid #F3F4F6;' : ''}">
-          <div style="font-size:14px;font-weight:600;color:#111827;line-height:1.4;">${n.title}</div>
-          ${n.desc ? `<div style="font-size:13px;color:#6B7280;margin-top:3px;line-height:1.5;">${n.desc}${n.desc.length >= 198 ? '…' : ''}</div>` : ''}
-        </div>`).join('')}
+  const focusBlok = focusTaak ? `
+    <div style="margin-bottom:28px;padding:16px 20px;background:#FAFAFA;border-radius:6px;">
+      <div style="font-size:11px;font-weight:600;letter-spacing:.08em;text-transform:uppercase;
+                  color:#A3A3A3;margin-bottom:6px;">Begin hier mee</div>
+      <div style="font-size:16px;font-weight:500;color:#171717;">${focusTaak.title}</div>
     </div>` : '';
 
   const weerBlok = weather ? `
-    <div style="border-top:1px solid #E5E7EB;padding-top:20px;margin-top:4px;">
-      <div style="font-size:10px;font-weight:700;letter-spacing:.1em;text-transform:uppercase;
-                  color:#6B7280;margin-bottom:8px;">Weer Amsterdam</div>
-      <div style="font-size:14px;color:#374151;">${weather.tekst}</div>
+    <div style="padding-top:20px;margin-top:20px;border-top:1px solid #F5F5F5;">
+      <div style="font-size:11px;font-weight:600;letter-spacing:.08em;text-transform:uppercase;
+                  color:#A3A3A3;margin-bottom:8px;">Weer in Amsterdam</div>
+      <div style="font-size:14px;color:#525252;line-height:1.6;">${weather.tekst}</div>
     </div>` : '';
 
-  const focusBlok = focusTaak ? `
-    <div style="background:#F9FAFB;border:1px solid #E5E7EB;border-radius:8px;
-                padding:14px 16px;margin-bottom:24px;">
-      <div style="font-size:10px;font-weight:700;letter-spacing:.1em;text-transform:uppercase;
-                  color:#9CA3AF;margin-bottom:6px;">Begin hier mee</div>
-      <div style="font-size:16px;font-weight:600;color:#111827;">${focusTaak.title}</div>
+  const nieuwsBlok = news.length ? `
+    <div style="padding-top:20px;margin-top:20px;border-top:1px solid #F5F5F5;">
+      <div style="font-size:11px;font-weight:600;letter-spacing:.08em;text-transform:uppercase;
+                  color:#A3A3A3;margin-bottom:14px;">Nieuws</div>
+      ${news.map((n, i) => `
+        <div style="margin-bottom:${i < news.length - 1 ? '16px' : '0'};">
+          <div style="font-size:14px;font-weight:600;color:#171717;line-height:1.4;margin-bottom:3px;">${n.title}</div>
+          ${n.desc ? `<div style="font-size:13px;color:#737373;line-height:1.55;">${n.desc}</div>` : ''}
+        </div>`).join('')}
     </div>` : '';
-
-  const voortgang = `
-    <div style="border-top:1px solid #E5E7EB;padding-top:16px;margin-top:4px;margin-bottom:20px;">
-      <div style="display:flex;justify-content:space-between;margin-bottom:6px;">
-        <span style="font-size:12px;color:#9CA3AF;">Voortgang</span>
-        <span style="font-size:12px;color:#9CA3AF;">${totalDone} / ${totalAll} afgerond</span>
-      </div>
-      <div style="background:#F3F4F6;border-radius:99px;height:4px;">
-        <div style="background:#111827;width:${pct}%;height:4px;border-radius:99px;transition:width .3s;"></div>
-      </div>
-    </div>`;
 
   return `<!DOCTYPE html>
 <html lang="nl">
@@ -261,58 +249,58 @@ function buildEmail({ tasks, today, weather, news, dow, intro }) {
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width,initial-scale=1">
 </head>
-<body style="margin:0;padding:0;background:#F9FAFB;
-             font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Helvetica,sans-serif;">
+<body style="margin:0;padding:0;background:#FFFFFF;
+             font-family:Georgia,'Times New Roman',serif;">
 
-  <div style="max-width:540px;margin:40px auto;background:#FFFFFF;
-              border:1px solid #E5E7EB;border-radius:12px;overflow:hidden;">
+  <div style="max-width:520px;margin:0 auto;padding:48px 24px 64px;">
 
-    <!-- HEADER -->
-    <div style="padding:32px 36px 24px;border-bottom:2px solid #111827;">
-      <div style="font-size:11px;font-weight:600;letter-spacing:.12em;text-transform:uppercase;
-                  color:#9CA3AF;margin-bottom:8px;">
-        Takenlijst · ${formatLong(today)}
-      </div>
-      <div style="font-size:26px;font-weight:700;color:#111827;line-height:1.2;">
-        Goedemorgen, Kees
-      </div>
+    <!-- DATUM + NAAM -->
+    <div style="font-family:-apple-system,BlinkMacSystemFont,'Helvetica Neue',sans-serif;
+                font-size:11px;font-weight:500;letter-spacing:.1em;text-transform:uppercase;
+                color:#A3A3A3;margin-bottom:12px;">
+      ${formatLong(today)}
     </div>
 
-    <!-- BODY -->
-    <div style="padding:28px 36px 32px;">
+    <div style="font-family:Georgia,'Times New Roman',serif;
+                font-size:32px;font-weight:400;color:#171717;
+                line-height:1.15;margin-bottom:4px;">
+      Goedemorgen,<br>Kees.
+    </div>
 
-      <!-- Intro -->
-      <p style="margin:0 0 24px;font-size:15px;line-height:1.7;color:#374151;">${intro}</p>
+    <div style="height:1px;background:#E5E5E5;margin:24px 0;"></div>
 
-      <!-- Focus -->
-      ${focusBlok}
+    <!-- INTRO -->
+    <p style="font-family:-apple-system,BlinkMacSystemFont,'Helvetica Neue',sans-serif;
+              font-size:15px;line-height:1.75;color:#404040;margin:0 0 28px;">${intro}</p>
 
-      <!-- Taken -->
+    <!-- FOCUS -->
+    ${focusBlok}
+
+    <!-- TAKEN -->
+    <div style="font-family:-apple-system,BlinkMacSystemFont,'Helvetica Neue',sans-serif;">
       ${sectie('Vandaag', todayT)}
       ${sectie('Deze week', upcoming, true)}
-      ${vergeetNiet.length ? sectie('Vergeet niet', vergeetNiet, true, '#DC2626', '#DC2626') : ''}
-
-      <!-- Voortgang -->
-      ${voortgang}
-
-      <!-- Weer + Nieuws -->
-      ${weerBlok}
-      ${nieuws}
-
-      <!-- CTA -->
-      <div style="text-align:center;margin-top:28px;">
-        <a href="https://keeshehenkamp.github.io/Taken-lijst/"
-           style="display:inline-block;background:#111827;color:#FFFFFF;
-                  text-decoration:none;padding:11px 28px;border-radius:6px;
-                  font-size:14px;font-weight:600;letter-spacing:.02em;">
-          Open takenlijst →
-        </a>
-      </div>
+      ${vergeetNiet.length ? sectie('Vergeet niet', vergeetNiet, true, true) : ''}
     </div>
-  </div>
 
-  <div style="text-align:center;padding:16px 0 32px;font-size:11px;color:#9CA3AF;">
-    Automatisch verstuurd · Takenlijst-app
+    <!-- DIVIDER -->
+    <div style="height:1px;background:#E5E5E5;margin:4px 0;"></div>
+
+    <!-- WEER + NIEUWS -->
+    <div style="font-family:-apple-system,BlinkMacSystemFont,'Helvetica Neue',sans-serif;">
+      ${weerBlok}
+      ${nieuwsBlok}
+    </div>
+
+    <!-- CTA -->
+    <div style="margin-top:36px;">
+      <a href="https://keeshehenkamp.github.io/Taken-lijst/"
+         style="font-family:-apple-system,BlinkMacSystemFont,'Helvetica Neue',sans-serif;
+                font-size:13px;color:#A3A3A3;text-decoration:underline;">
+        Open takenlijst →
+      </a>
+    </div>
+
   </div>
 
 </body>
