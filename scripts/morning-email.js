@@ -1,6 +1,6 @@
 /* ================================================================
    morning-email.js — draait elke ochtend via GitHub Actions
-   Leest taken uit Firestore en stuurt een HTML-overzicht per mail.
+   Leest taken uit Firestore en stuurt een persoonlijk dagoverzicht.
    ================================================================ */
 
 const admin      = require('firebase-admin');
@@ -13,28 +13,16 @@ const db = admin.firestore();
 
 // ── Datumhulpfuncties ───────────────────────────────────────────
 
-/** Geeft de huidige datum als YYYY-MM-DD in Amsterdam-tijdzone. */
 function todayNL() {
   return new Date().toLocaleDateString('en-CA', { timeZone: 'Europe/Amsterdam' });
 }
 
-/** Tel `days` op bij een ISO-datumstring en geef het resultaat terug. */
 function addDays(iso, days) {
   const d = new Date(iso + 'T12:00:00Z');
   d.setUTCDate(d.getUTCDate() + days);
   return d.toISOString().slice(0, 10);
 }
 
-/** "2026-06-03" → "wo 3 jun" */
-function formatShort(iso) {
-  const [y, m, d] = iso.split('-').map(Number);
-  const dt = new Date(y, m - 1, d);
-  const dag    = ['zo','ma','di','wo','do','vr','za'][dt.getDay()];
-  const maand  = ['jan','feb','mrt','apr','mei','jun','jul','aug','sep','okt','nov','dec'][m - 1];
-  return `${dag} ${d} ${maand}`;
-}
-
-/** "2026-06-03" → "woensdag 3 juni" */
 function formatLong(iso) {
   const [y, m, d] = iso.split('-').map(Number);
   const dt = new Date(y, m - 1, d);
@@ -44,7 +32,6 @@ function formatLong(iso) {
   return `${dag} ${d} ${maand}`;
 }
 
-/** Sorteert op prioriteit (hoog eerst), dan op deadline (vroegste eerst). */
 function sortTasks(tasks) {
   const order = { hoog: 0, midden: 1, laag: 2 };
   return [...tasks].sort((a, b) => {
@@ -58,70 +45,79 @@ function sortTasks(tasks) {
   });
 }
 
+// ── Weer ophalen via wttr.in ────────────────────────────────────
+
+async function fetchWeather() {
+  try {
+    const res  = await fetch('https://wttr.in/Amsterdam?format=j1');
+    const data = await res.json();
+    const cur  = data.current_condition[0];
+    const desc = cur.lang_nl?.[0]?.value || cur.weatherDesc[0].value;
+    const temp = cur.temp_C;
+    const feel = cur.FeelsLikeC;
+    const wind = cur.windspeedKmph;
+    return `${desc}, ${temp}°C (voelt als ${feel}°C), wind ${wind} km/u`;
+  } catch {
+    return null;
+  }
+}
+
+// ── Nieuws ophalen via NOS RSS ──────────────────────────────────
+
+async function fetchNews() {
+  try {
+    const res  = await fetch('https://feeds.nos.nl/nosnieuwsalgemeen');
+    const text = await res.text();
+    const items = [...text.matchAll(/<item>[\s\S]*?<title><!\[CDATA\[(.*?)\]\]><\/title>[\s\S]*?<\/item>/g)]
+      .slice(0, 4)
+      .map(m => m[1].trim());
+    return items.length ? items : null;
+  } catch {
+    return null;
+  }
+}
+
 // ── HTML-email opbouwen ─────────────────────────────────────────
 
-function buildEmail(tasks, today) {
-  const tomorrow = addDays(today, 1);
-  const weekEnd  = addDays(today, 7);
+function buildEmail(tasks, today, weather, news) {
+  const weekEnd = addDays(today, 7);
 
-  // Groepen
-  const overdue  = tasks.filter(t => !t.done && t.deadline && t.deadline < today);
-  const todayT   = tasks.filter(t => !t.done && t.deadline === today);
-  const upcoming = tasks.filter(t =>
+  const overdue  = sortTasks(tasks.filter(t => !t.done && t.deadline && t.deadline < today));
+  const todayT   = sortTasks(tasks.filter(t => !t.done && t.deadline === today));
+  const upcoming = sortTasks(tasks.filter(t =>
     !t.done && t.deadline && t.deadline > today && t.deadline <= weekEnd
-  );
-  const highPrio = tasks.filter(t =>
+  ));
+  const highPrio = sortTasks(tasks.filter(t =>
     !t.done && t.priority === 'hoog' &&
     !overdue.includes(t) && !todayT.includes(t) && !upcoming.includes(t)
-  );
+  ));
+  const vergeetNiet = [...overdue, ...highPrio];
 
-  const openCount   = tasks.filter(t => !t.done).length;
-  const doneCount   = tasks.filter(t =>  t.done).length;
-  const hasItems    = overdue.length + todayT.length + upcoming.length + highPrio.length > 0;
-
-  // Begroeting op basis van uur in Amsterdam
-  const hourNL  = parseInt(new Date().toLocaleString('en-US',
-    { timeZone: 'Europe/Amsterdam', hour: 'numeric', hour12: false }));
-  const greeting = hourNL < 12 ? 'Goedemorgen' : hourNL < 18 ? 'Goedemiddag' : 'Goedenavond';
-
-  // Helper: één taakregel
-  function row(t, nameColor = '#1F1E1B') {
-    const catBadge = t.category
-      ? `<span style="background:#F1EFE6;color:#5C574E;padding:2px 8px;border-radius:99px;font-size:11px;margin-right:5px;">${t.category}</span>`
-      : '';
-    const dateStr = t.deadline && t.deadline !== today
-      ? `<span style="color:#8A8378;font-size:12px;margin-left:5px;">${formatShort(t.deadline)}</span>`
-      : '';
-    return `
-      <tr>
-        <td style="padding:7px 0;border-bottom:1px solid #E6E2D5;">
-          <div style="font-size:14px;font-weight:500;color:${nameColor};margin-bottom:3px;">
-            ${t.title}${dateStr}
-          </div>
-          <div>${catBadge}</div>
-        </td>
-      </tr>`;
+  function bullets(items, showDate = false) {
+    if (!items.length) return `<li style="color:#8A8378;font-style:italic;">Niets gepland</li>`;
+    return items.map(t => {
+      const date = showDate && t.deadline && t.deadline !== today
+        ? ` <span style="color:#8A8378;font-size:13px;">(${formatLong(t.deadline)})</span>` : '';
+      return `<li>${t.title}${date}</li>`;
+    }).join('\n');
   }
 
-  // Helper: sectieblok
-  function section(title, items, titleColor, nameColor) {
-    if (!items.length) return '';
-    return `
-      <tr>
-        <td style="padding:18px 0 6px;">
-          <div style="font-size:11px;font-weight:600;color:${titleColor};
-                      text-transform:uppercase;letter-spacing:.08em;">${title}</div>
-        </td>
-      </tr>
-      ${sortTasks(items).map(t => row(t, nameColor)).join('')}`;
-  }
+  const weatherBlock = weather ? `
+    <p style="margin:0 0 6px;"><strong>Weer vandaag</strong></p>
+    <p style="margin:0 0 24px;color:#5C574E;">${weather}</p>` : '';
+
+  const newsBlock = news ? `
+    <p style="margin:0 0 6px;"><strong>Nieuws</strong></p>
+    <ul style="margin:0 0 24px;padding-left:20px;color:#5C574E;">
+      ${news.map(h => `<li style="margin-bottom:4px;">${h}</li>`).join('\n')}
+    </ul>` : '';
 
   return `<!DOCTYPE html>
 <html lang="nl">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width,initial-scale=1">
-  <title>Takenlijst — ${formatShort(today)}</title>
+  <title>Takenlijst — ${formatLong(today)}</title>
 </head>
 <body style="margin:0;padding:0;background:#F5F4ED;
              font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;">
@@ -134,48 +130,34 @@ function buildEmail(tasks, today) {
     <div style="background:#C96442;padding:22px 28px 20px;">
       <div style="font-size:11px;font-weight:600;letter-spacing:.1em;
                   text-transform:uppercase;color:rgba(255,255,255,.7);margin-bottom:4px;">
-        Takenlijst
-      </div>
-      <div style="font-size:22px;font-weight:500;color:#fff;">${greeting}</div>
-      <div style="font-size:14px;color:rgba(255,255,255,.8);margin-top:2px;">
         ${formatLong(today)}
       </div>
+      <div style="font-size:22px;font-weight:500;color:#fff;">Goedemorgen, Kees</div>
     </div>
 
-    <!-- STATISTIEKEN -->
-    <table style="width:100%;border-collapse:collapse;border-bottom:1px solid #E6E2D5;">
-      <tr>
-        <td style="width:33%;text-align:center;padding:14px 0;border-right:1px solid #E6E2D5;">
-          <div style="font-size:24px;font-weight:500;color:#1F1E1B;">${openCount}</div>
-          <div style="font-size:10px;color:#8A8378;text-transform:uppercase;letter-spacing:.06em;">openstaand</div>
-        </td>
-        <td style="width:33%;text-align:center;padding:14px 0;border-right:1px solid #E6E2D5;">
-          <div style="font-size:24px;font-weight:500;color:#4B7A4A;">${doneCount}</div>
-          <div style="font-size:10px;color:#8A8378;text-transform:uppercase;letter-spacing:.06em;">afgerond</div>
-        </td>
-        <td style="width:33%;text-align:center;padding:14px 0;">
-          <div style="font-size:24px;font-weight:500;color:${overdue.length ? '#B0432E' : '#1F1E1B'};">
-            ${overdue.length}
-          </div>
-          <div style="font-size:10px;color:#8A8378;text-transform:uppercase;letter-spacing:.06em;">te laat</div>
-        </td>
-      </tr>
-    </table>
+    <!-- BODY -->
+    <div style="padding:24px 28px;font-size:15px;line-height:1.7;color:#1F1E1B;">
 
-    <!-- TAKEN -->
-    <div style="padding:4px 28px 24px;">
-      ${hasItems
-        ? `<table style="width:100%;border-collapse:collapse;">
-             ${section('Te laat',        overdue,  '#B0432E', '#B0432E')}
-             ${section('Vandaag',         todayT,   '#1F1E1B', '#1F1E1B')}
-             ${section('Deze week',       upcoming, '#5C574E', '#1F1E1B')}
-             ${section('Hoog prioriteit', highPrio, '#A06A1B', '#1F1E1B')}
-           </table>`
-        : `<p style="color:#8A8378;font-style:italic;text-align:center;padding:28px 0;">
-             Geen taken die direct aandacht nodig hebben. Mooi!
-           </p>`
-      }
-      <div style="margin-top:22px;text-align:center;">
+      <p style="margin:0 0 6px;"><strong>Voor vandaag staat</strong></p>
+      <ul style="margin:0 0 24px;padding-left:20px;color:#5C574E;">
+        ${bullets(todayT)}
+      </ul>
+
+      <p style="margin:0 0 6px;"><strong>Voor deze week</strong></p>
+      <ul style="margin:0 0 24px;padding-left:20px;color:#5C574E;">
+        ${bullets(upcoming, true)}
+      </ul>
+
+      ${vergeetNiet.length ? `
+      <p style="margin:0 0 6px;"><strong>Vergeet niet</strong></p>
+      <ul style="margin:0 0 24px;padding-left:20px;color:#B0432E;">
+        ${bullets(vergeetNiet, true)}
+      </ul>` : ''}
+
+      ${weatherBlock}
+      ${newsBlock}
+
+      <div style="margin-top:8px;text-align:center;">
         <a href="https://keeshehenkamp.github.io/Taken-lijst/"
            style="display:inline-block;background:#C96442;color:#fff;text-decoration:none;
                   padding:10px 24px;border-radius:8px;font-size:14px;font-weight:500;">
@@ -198,7 +180,6 @@ async function main() {
   const uid   = process.env.USER_UID;
   const today = todayNL();
 
-  // Taken ophalen
   const snap = await db.collection('users').doc(uid).get();
   if (!snap.exists) {
     console.log('Geen Firestore-data gevonden — e-mail overgeslagen.');
@@ -206,7 +187,8 @@ async function main() {
   }
   const { tasks = [] } = snap.data();
 
-  // E-mail versturen via Gmail SMTP
+  const [weather, news] = await Promise.all([fetchWeather(), fetchNews()]);
+
   const transporter = nodemailer.createTransport({
     host:   'smtp.gmail.com',
     port:   465,
@@ -217,8 +199,8 @@ async function main() {
     },
   });
 
-  const subject = `Takenlijst · ${formatLong(today)}`;
-  const html    = buildEmail(tasks, today);
+  const subject = `Goedemorgen Kees — ${formatLong(today)}`;
+  const html    = buildEmail(tasks, today, weather, news);
 
   await transporter.sendMail({
     from:    `"Takenlijst" <${process.env.GMAIL_USER}>`,
