@@ -156,7 +156,8 @@ async function summarizeArticle({ title, desc }) {
       `Kop: ${title}\nBericht: ${desc}`, 200);
   } catch (e) {
     console.warn('Samenvatten mislukt:', e.message);
-    return desc;
+    // Terugval: eerste twee zinnen in plaats van het hele bericht.
+    return (desc.match(/[^.!?]+[.!?]+/g) || [desc]).slice(0, 2).join(' ').trim();
   }
 }
 
@@ -194,8 +195,14 @@ async function schrijfDagtekst({ today, dow, todayT, overdue, blijftLiggen, weat
     return await vraagClaude(prompt, 400);
   } catch (e) {
     console.warn('Dagtekst mislukt:', e.message);
-    const n = todayT.length;
-    return `Goedemorgen Kees.\n\nVandaag ${n ? `staan er ${n} taken op de planning` : 'staat er niets gepland'}.`;
+    const taken = todayT.length
+      ? `Vandaag staat ${todayT.map(t => t.title).join(' en ')} op de planning.`
+      : 'Er staat vandaag niets gepland.';
+    const weer = weather
+      ? ` Buiten is het ${weather.beschrijving.toLowerCase()} en ${weather.temp} graden, ` +
+        `vanmiddag tot ${weather.max}.`
+      : '';
+    return `Goedemorgen Kees.\n\n${taken}${weer}`;
   }
 }
 
