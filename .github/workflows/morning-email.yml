@@ -2,10 +2,13 @@ name: Ochtend-email takenlijst
 
 on:
   schedule:
-    # Twee aanlopen: 05:00 UTC is 07:00 in de zomertijd, 06:00 UTC in de wintertijd.
-    # Het script verstuurt hooguit één mail per dag en slaat de verkeerde aanloop over.
-    - cron: '0 5 * * *'
-    - cron: '0 6 * * *'
+    # GitHub start geplande runs soms uren te laat, vooral op het hele uur.
+    # Daarom meerdere vroege pogingen op :17; de eerste die draait na 04:00 NL
+    # verstuurt de mail, de rest ziet dat hij al weg is.
+    - cron: '17 2 * * *'
+    - cron: '17 3 * * *'
+    - cron: '17 4 * * *'
+    - cron: '17 5 * * *'
   workflow_dispatch:  # handmatig starten voor testen — knop op GitHub
 
 jobs:

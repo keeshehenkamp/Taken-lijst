@@ -330,8 +330,8 @@ async function magVersturen(today, marker) {
 
   const uurNL = +new Date().toLocaleString('en-US',
     { timeZone: 'Europe/Amsterdam', hour: 'numeric', hour12: false });
-  if (uurNL < 7) {
-    console.log(`Nog geen zeven uur in Amsterdam (${uurNL}:00) — overgeslagen.`);
+  if (uurNL < 4) {
+    console.log(`Nog geen vier uur in Amsterdam (${uurNL}:00) — overgeslagen.`);
     return false;
   }
 
