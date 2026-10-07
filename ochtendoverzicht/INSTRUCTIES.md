@@ -86,6 +86,12 @@ Schrijf `opening`: wat er vandaag toe doet, op basis van alles hierboven.
 - Maandag: hooguit twee zinnen over de week (drukke dagen, deadlines).
 - Vrijdag: hooguit drie zinnen terugblik: wat is gelukt, wat bleef liggen.
 
+De zin moet iets toevoegen dat Kees niet al in de blokken eronder ziet. Niet goed:
+"Een taak met deadline vandaag en een die al weken openstaat." (dat staat er al).
+Wel goed: "De bezichtiging om 9:00 valt midden in het onderwijs." of "Mark wacht sinds
+donderdag op een belafspraak." Is er niets toe te voegen, schrijf dan alleen hoe de dag
+eruitziet in een paar woorden ("Onderwijs tot 12:00, middag vrij.").
+
 Toon: nuchter en feitelijk, zoals een collega die iets aanstipt. Geen begroeting (die staat
 er al), geen uitroeptekens, geen complimenten of aanmoediging ("lekker bezig", "succes"),
 geen advies, geen gedachtestreepjes (—), geen "daarnaast" of "kortom". Som de taken en
