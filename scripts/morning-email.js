@@ -1,22 +1,18 @@
-/* morning-email.js — dagelijkse briefing via GitHub Actions */
+/* morning-email.js — dagelijkse ochtendmail via GitHub Actions
+ *
+ * Opbouw van de mail: begroeting, Taken, Weer, Nieuws.
+ * Lokaal bekijken zonder iets te versturen:  PREVIEW=1 node morning-email.js
+ * (schrijft preview.html met voorbeeldtaken).
+ */
 
-const admin      = require('firebase-admin');
-const nodemailer = require('nodemailer');
+const PREVIEW = process.env.PREVIEW === '1';
+const MODEL   = process.env.ANTHROPIC_MODEL || 'claude-haiku-4-5-20251001';
+const WEER_PLAATS = process.env.WEER_PLAATS || 'Amsterdam';
+const APP_URL = 'https://keeshehenkamp.github.io/Taken-lijst/';
 
-// De SDK exporteert afhankelijk van de versie op verschillende manieren.
-const SDK       = require('@anthropic-ai/sdk');
-const Anthropic = SDK.Anthropic || SDK.default || SDK;
-
-const serviceAccount = JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT);
-admin.initializeApp({ credential: admin.credential.cert(serviceAccount) });
-const db = admin.firestore();
-
-if (!process.env.ANTHROPIC_API_KEY) {
-  console.warn('! ANTHROPIC_API_KEY ontbreekt — teksten vallen terug op sjablonen.');
-}
-const claude = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
-
-const MODEL = 'claude-haiku-4-5-20251001';
+// Meldingen over onderdelen die mislukten; komen onderaan de mail te staan,
+// zodat een storing niet ongemerkt blijft.
+const storingen = [];
 
 // ── Datum ───────────────────────────────────────────────────────
 
@@ -27,35 +23,28 @@ const MAANDEN = ['januari','februari','maart','april','mei','juni','juli','augus
 function todayNL() {
   return new Date().toLocaleDateString('en-CA', { timeZone: 'Europe/Amsterdam' });
 }
-
 function addDays(iso, days) {
   const d = new Date(iso + 'T12:00:00Z');
   d.setUTCDate(d.getUTCDate() + days);
   return d.toISOString().slice(0, 10);
 }
-
 function dayOfWeek(iso) {
   const [y, m, d] = iso.split('-').map(Number);
   return new Date(y, m - 1, d).getDay();
 }
-
 function formatLong(iso) {
-  const [y, m, d] = iso.split('-').map(Number);
-  return `${DAGEN[new Date(y, m-1, d).getDay()]} ${d} ${MAANDEN[m-1]}`;
+  const [, m, d] = iso.split('-').map(Number);
+  return `${DAGEN[dayOfWeek(iso)]} ${d} ${MAANDEN[m-1]}`;
 }
-
 function formatShort(iso) {
-  const [y, m, d] = iso.split('-').map(Number);
-  const kort = ['zo','ma','di','wo','do','vr','za'][new Date(y, m-1, d).getDay()];
-  return `${kort} ${d} ${MAANDEN[m-1].slice(0,3)}`;
+  const [, m, d] = iso.split('-').map(Number);
+  return `${DAGEN[dayOfWeek(iso)].slice(0,2)} ${d} ${MAANDEN[m-1].slice(0,3)}`;
 }
-
 function daysBetween(fromIso, toIso) {
   const a = new Date(fromIso.slice(0,10) + 'T12:00:00Z');
   const b = new Date(toIso.slice(0,10) + 'T12:00:00Z');
   return Math.round((b - a) / 86400000);
 }
-
 function sortTasks(tasks) {
   const rang = { hoog: 0, midden: 1, laag: 2 };
   return [...tasks].sort((a, b) => {
@@ -67,28 +56,56 @@ function sortTasks(tasks) {
     return 0;
   });
 }
+const dagen = n => `${n} ${n === 1 ? 'dag' : 'dagen'}`;
+const taken = n => `${n} ${n === 1 ? 'taak' : 'taken'}`;
+
+function esc(s) {
+  return String(s ?? '').replace(/&/g,'&amp;').replace(/</g,'&lt;')
+                        .replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
 
 // ── Weer ────────────────────────────────────────────────────────
 
+function weerIcoon(code) {
+  code = +code;
+  if (code === 113) return '☀️';
+  if (code === 116) return '⛅';
+  if (code === 119 || code === 122) return '☁️';
+  if ([143, 248, 260].includes(code)) return '🌫️';
+  if ([200, 386, 389, 392, 395].includes(code)) return '⛈️';
+  if ([179, 182, 185, 227, 230, 281, 284, 311, 314, 317, 320, 323, 326, 329, 332,
+       335, 338, 350, 362, 365, 368, 371, 374, 377].includes(code)) return '🌨️';
+  return '🌧️';
+}
+
 async function fetchWeather() {
   try {
-    const res  = await fetch('https://wttr.in/Amsterdam?format=j1&lang=nl',
+    const res  = await fetch(`https://wttr.in/${encodeURIComponent(WEER_PLAATS)}?format=j1&lang=nl`,
                              { signal: AbortSignal.timeout(8000) });
     const data = await res.json();
     const nu   = data.current_condition[0];
     const dag  = data.weather[0];
-
-    const middag    = (dag.hourly || []).find(h => +h.time >= 1200 && +h.time <= 1500);
-    const regenKans = middag ? +middag.chanceofrain : 0;
-
+    const uur  = t => (dag.hourly || []).find(h => +h.time === t);
+    const deel = (naam, t) => {
+      const h = uur(t);
+      return h && { naam, icoon: weerIcoon(h.weatherCode), temp: h.tempC, regen: +h.chanceofrain };
+    };
     return {
+      plaats: WEER_PLAATS,
+      icoon: weerIcoon(nu.weatherCode),
       beschrijving: nu.lang_nl?.[0]?.value || nu.weatherDesc[0].value,
-      temp: nu.temp_C, feel: nu.FeelsLikeC,
-      min: dag.mintempC, max: dag.maxtempC,
-      regenKans,
+      temp: nu.temp_C, min: dag.mintempC, max: dag.maxtempC,
+      wind: nu.windspeedKmph,
+      delen: [deel('Ochtend', 900), deel('Middag', 1500), deel('Avond', 2100)].filter(Boolean),
     };
   } catch (e) {
-    console.warn('Weer ophalen mislukt:', e.message);
+    if (PREVIEW) return {
+      plaats: WEER_PLAATS, icoon: '☁️', beschrijving: 'Geheel bewolkt', temp: 16, min: 12, max: 22, wind: 14,
+      delen: [{ naam:'Ochtend', icoon:'☁️', temp:15, regen:10 },
+              { naam:'Middag',  icoon:'⛅', temp:22, regen:20 },
+              { naam:'Avond',   icoon:'🌧️', temp:17, regen:65 }],
+    };
+    storingen.push(`Weer ophalen mislukt: ${e.message}`);
     return null;
   }
 }
@@ -96,10 +113,17 @@ async function fetchWeather() {
 // ── Nieuws ──────────────────────────────────────────────────────
 
 function clean(s) {
-  return s.replace(/<[^>]+>/g, '')
+  return s.replace(/<[^>]+>/g, ' ')
           .replace(/&amp;/g,'&').replace(/&lt;/g,'<').replace(/&gt;/g,'>')
           .replace(/&quot;/g,'"').replace(/&#39;/g,"'").replace(/&nbsp;/g,' ')
           .replace(/\s+/g,' ').trim();
+}
+
+/** Eerste n hele zinnen. Een punt telt alleen als zinseinde wanneer er een
+ *  spatie en een hoofdletter op volgen, zodat "170.000" heel blijft. */
+function eersteZinnen(tekst, n) {
+  const zinnen = tekst.split(/(?<=[.!?])\s+(?=[A-ZÀ-Ý'"‘“])/);
+  return zinnen.slice(0, n).join(' ').trim();
 }
 
 async function fetchNews() {
@@ -107,329 +131,364 @@ async function fetchNews() {
     'https://feeds.nos.nl/nosnieuwsalgemeen',
     'https://feeds.nos.nl/nosnieuwsgezondheid',
   ];
-
   const perFeed = await Promise.allSettled(urls.map(async url => {
-    const res  = await fetch(url, { signal: AbortSignal.timeout(8000) });
-    const xml  = await res.text();
-    const out  = [];
-    const re   = /<item>([\s\S]*?)<\/item>/g;
+    const res = await fetch(url, { signal: AbortSignal.timeout(8000) });
+    const xml = await res.text();
+    const out = [];
+    const re  = /<item>([\s\S]*?)<\/item>/g;
     let m;
     while ((m = re.exec(xml)) !== null) {
       const blok   = m[1];
-      const titleM = blok.match(/<title>(?:<!\[CDATA\[)?([\s\S]*?)(?:\]\]>)?<\/title>/);
-      const descM  = blok.match(/<description>(?:<!\[CDATA\[)?([\s\S]*?)(?:\]\]>)?<\/description>/);
+      const veld   = naam => blok.match(
+        new RegExp(`<${naam}>(?:<!\\[CDATA\\[)?([\\s\\S]*?)(?:\\]\\]>)?<\\/${naam}>`));
+      const titleM = veld('title');
       if (!titleM) continue;
       const title = clean(titleM[1]);
       if (title.length < 6) continue;
-      out.push({ title, desc: descM ? clean(descM[1]) : '' });
+      const descM = veld('description'), linkM = veld('link');
+      const imgM  = blok.match(/<enclosure[^>]*url="([^"]+)"/);
+      out.push({
+        title,
+        summary: descM ? eersteZinnen(clean(descM[1]), 2) : '',
+        link: linkM ? clean(linkM[1]) : 'https://nos.nl',
+        image: imgM ? imgM[1].replace(/&amp;/g, '&') : '',
+      });
     }
     return out;
   }));
 
-  // Feeds afwisselend samenvoegen, dubbele titels eruit, max 3.
   const lijsten = perFeed.filter(r => r.status === 'fulfilled').map(r => r.value);
-  const gemengd = [];
-  for (let i = 0; i < 5; i++) {
-    for (const lijst of lijsten) if (lijst[i]) gemengd.push(lijst[i]);
+  if (!lijsten.length || !lijsten.some(l => l.length)) {
+    if (PREVIEW) return [
+      { title: 'Voorbeeldkop van het belangrijkste nieuws van vanochtend', link: 'https://nos.nl', image: '',
+        summary: 'Dit is een voorbeeldtekst van twee zinnen. In de echte mail staat hier de inleiding van het NOS-bericht.' },
+      { title: 'Tweede voorbeeldkop, wat korter', link: 'https://nos.nl', image: '',
+        summary: 'Het aantal komt uit op bijna 170.000 per jaar. Getallen met een punt blijven nu heel.' },
+      { title: 'Derde voorbeeldkop uit de gezondheidsrubriek', link: 'https://nos.nl', image: '',
+        summary: 'Korte samenvatting van het derde bericht.' },
+    ];
+    storingen.push('Nieuws ophalen mislukt.');
+    return [];
   }
+  const gemengd = [];
+  for (let i = 0; i < 5; i++) for (const lijst of lijsten) if (lijst[i]) gemengd.push(lijst[i]);
   const gezien = new Set();
-  return gemengd.filter(n => !gezien.has(n.title) && gezien.add(n.title)).slice(0, 3);
+  return gemengd.filter(n => !gezien.has(n.title) && gezien.add(n.title)).slice(0, 4);
 }
 
-// ── Claude ──────────────────────────────────────────────────────
+// ── Openingstekst door Claude ───────────────────────────────────
 
 async function vraagClaude(prompt, maxTokens) {
+  if (!process.env.ANTHROPIC_API_KEY) throw new Error('ANTHROPIC_API_KEY ontbreekt');
+  const SDK       = require('@anthropic-ai/sdk');
+  const Anthropic = SDK.Anthropic || SDK.default || SDK;
+  const claude    = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
   const res = await claude.messages.create({
-    model: MODEL,
-    max_tokens: maxTokens,
+    model: MODEL, max_tokens: maxTokens,
     messages: [{ role: 'user', content: prompt }],
   });
   return res.content[0].text.trim();
 }
 
-async function summarizeArticle({ title, desc }) {
-  if (!desc || desc.length < 40) return desc;
-  try {
-    return await vraagClaude(
-      `Vat dit nieuwsbericht samen in precies twee vloeiende Nederlandse zinnen. ` +
-      `Geen opsomming, geen herhaling van de kop, geen inleidende woorden.\n\n` +
-      `Kop: ${title}\nBericht: ${desc}`, 200);
-  } catch (e) {
-    console.warn('Samenvatten mislukt:', e.message);
-    // Terugval: eerste twee zinnen in plaats van het hele bericht.
-    return (desc.match(/[^.!?]+[.!?]+/g) || [desc]).slice(0, 2).join(' ').trim();
-  }
-}
+const TOON =
+  `Toon: nuchter en feitelijk, zoals een collega die even iets aanstipt. ` +
+  `Geen aanmoediging, geen complimenten, geen uitroeptekens, geen advies. ` +
+  `Schrijf niets over het weer of het nieuws; dat staat elders in de mail. ` +
+  `Begin niet met een begroeting; die staat er al boven.`;
 
-/**
- * Zoekt wat er vandaag opvalt aan de lijst. Dit is het ruwe materiaal voor de
- * openingstekst: dingen die je aan de lijst zelf niet ziet.
- */
-function signalen({ today, todayT, overdue, upcoming, blijftLiggen, afgerondRecent }) {
-  const uit = [];
+async function schrijfOpening(g) {
+  const regels = (kop, lijst, bij) => lijst.length
+    ? `${kop}:\n${lijst.map(t => `- ${t.title}${bij ? ` (${bij(t)})` : ''}`).join('\n')}\n` : '';
+  const feiten =
+    regels('Vandaag', g.todayT) +
+    regels('Verder deze week', g.upcoming, t => formatLong(t.deadline)) +
+    regels('Kort over de deadline', g.overdueRecent, t => `${dagen(daysBetween(t.deadline, g.today))} te laat`) +
+    (g.overdueOud.length ? `Staat al langer dan een week open: ${g.overdueOud.length} taken.\n` : '') +
+    (g.afgerond.length ? `Afgelopen zeven dagen afgerond: ${g.afgerond.map(t => t.title).join('; ')}.\n`
+                       : 'Afgelopen zeven dagen is er niets afgevinkt.\n');
 
-  if (overdue.length) {
-    const ergste = overdue.reduce((a, b) =>
-      daysBetween(a.deadline, today) > daysBetween(b.deadline, today) ? a : b);
-    uit.push(`"${ergste.title}" is ${daysBetween(ergste.deadline, today)} dagen over de deadline.`);
-  }
-  if (blijftLiggen.length) {
-    const oudste = blijftLiggen[0];
-    uit.push(`"${oudste.title}" staat er al ${oudste.dagen} dagen in zonder deadline.`);
-  }
-  if (todayT.length >= 3) uit.push(`Er vallen ${todayT.length} deadlines op vandaag.`);
-  if (!todayT.length && !overdue.length) uit.push('Vandaag staat er niets met een deadline.');
-  if (!afgerondRecent) uit.push('De afgelopen zeven dagen is er niets afgevinkt.');
+  const opdracht = g.isVrijdag
+    ? `Blik in hooguit drie zinnen terug op zijn week: wat is er gelukt en wat bleef liggen.`
+    : `Schrijf hooguit twee zinnen over wat er vandaag toe doet. Onder jouw tekst staat het ` +
+      `volledige takenoverzicht, dus som de taken niet op en herhaal geen aantallen. ` +
+      `Begin niet elke dag over de taken die al weken openstaan; noem die alleen op maandag. ` +
+      `Is er weinig bijzonders, dan is één korte zin genoeg.`;
 
-  // Meerdere taken op dezelfde dag verderop in de week.
-  const perDag = {};
-  upcoming.forEach(t => { perDag[t.deadline] = (perDag[t.deadline] || 0) + 1; });
-  for (const [datum, n] of Object.entries(perDag)) {
-    if (n >= 3) uit.push(`Op ${formatLong(datum)} vallen ${n} deadlines samen.`);
-  }
-
-  return uit;
-}
-
-async function schrijfDagtekst({ today, todayT, overdue, upcoming, blijftLiggen,
-                                 afgerondRecent }) {
-  const opvallend = signalen({ today, todayT, overdue, upcoming, blijftLiggen, afgerondRecent });
-
-  const prompt =
-    `Je schrijft de opening van een ochtendmail aan Kees, coassistent kindergeneeskunde.\n\n` +
-    `Onder jouw tekst staat al een overzichtelijk lijstje met al zijn taken. ` +
-    `Noem die taken dus NIET op en herhaal geen aantallen — dat leest hij zelf. ` +
-    `Jouw taak is om het enige op te merken wat in dat lijstje niet te zien is.\n\n` +
-    `Schrijf na "Goedemorgen Kees." één alinea van hooguit twee zinnen. ` +
-    `Soms is één zin genoeg — op een dag zonder bijzonderheden mag je het kort houden.\n\n` +
-    `Toon: nuchter, zoals een collega die even iets aanstipt. ` +
-    `Geen aanmoediging, geen complimenten, geen uitroeptekens, geen "succes" of "lekker bezig". ` +
-    `Geen inleidende voegwoorden als "daarnaast", "verder" of "kortom". ` +
-    `Geen advies over hoe hij zijn dag moet indelen, tenzij het echt voor de hand ligt.\n\n` +
-    `Schrijf niets over het weer — dat staat elders in de mail.\n\n` +
-    (opvallend.length
-      ? `Wat opvalt:\n${opvallend.map(s => `- ${s}`).join('\n')}\n\n`
-      : `Er valt vandaag weinig op. Houd het dan bij één neutrale zin.\n\n`) +
-    `Vandaag is het ${formatLong(today)}.`;
-
-  try {
-    return await vraagClaude(prompt, 250);
-  } catch (e) {
-    console.warn('Dagtekst mislukt:', e.message);
-    return `Goedemorgen Kees.\n\n${opvallend[0] || 'Een dag zonder bijzonderheden.'}`;
-  }
-}
-
-async function schrijfWeekterugblik({ today, afgerond, nogOpen, overdue }) {
-  const feiten = [
-    afgerond.length ? `Deze week afgerond: ${afgerond.map(t=>t.title).join('; ')}.`
-                    : 'Deze week is er niets afgevinkt.',
-    nogOpen.length  ? `Staat nog open: ${nogOpen.map(t=>t.title).join('; ')}.` : '',
-    overdue.length  ? `Over de deadline: ${overdue.map(t=>t.title).join('; ')}.` : '',
-  ].filter(Boolean).join('\n');
+  const noodtekst = g.todayT.length
+    ? `Vandaag ${g.todayT.length === 1 ? 'staat er één taak' : `staan er ${g.todayT.length} taken`} op de planning.`
+    : 'Vandaag staat er niets met een deadline.';
+  if (PREVIEW) return noodtekst;
 
   try {
     return await vraagClaude(
-      `Je schrijft de opening van de vrijdagmail aan Kees, coassistent kindergeneeskunde. ` +
-      `Blik kort terug op zijn week: wat is er gelukt, wat bleef liggen.\n\n` +
-      `Onder jouw tekst staat al een lijstje met de openstaande taken, dus som die niet op. ` +
-      `Begin met "Goedemorgen Kees." en schrijf daarna hooguit drie zinnen.\n\n` +
-      `Toon: nuchter en feitelijk, zoals iemand die de week even naloopt. ` +
-      `Geen complimenten, geen aanmoediging, geen uitroeptekens, geen weekendwensen. ` +
-      `Als er weinig is gebeurd, schrijf dat gewoon — verzin er geen positieve draai omheen.\n\n` +
-      `Feiten:\n${feiten}`, 300);
+      `Je schrijft de korte opening van de ochtendmail aan Kees, coassistent kindergeneeskunde. ` +
+      `${opdracht}\n\n${TOON}\n\nVandaag is het ${formatLong(g.today)}.\n\n${feiten}`, 300);
   } catch (e) {
-    console.warn('Terugblik mislukt:', e.message);
-    return `Goedemorgen Kees.\n\nJe hebt deze week ${afgerond.length} taken afgerond.`;
+    storingen.push(`De openingstekst kon niet door Claude geschreven worden (${e.status || ''} ${e.message}).`.replace('( ', '('));
+    return noodtekst;
   }
 }
 
 // ── HTML ────────────────────────────────────────────────────────
 
-const SERIF = "Georgia,'Iowan Old Style','Times New Roman',Times,serif";
+const FONT = "-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif";
+const K = { tekst:'#1A1D21', zacht:'#667085', lijn:'#E4E7EC', vlak:'#F2F4F7',
+            rood:'#D92D20', oranje:'#DC6803', groen:'#079455', blauw:'#1570EF', nieuws:'#E3120B' };
 
-function alineas(tekst) {
-  return tekst.split(/\n\s*\n/).map(p => `
-    <p style="margin:0 0 18px;font-size:17px;line-height:1.72;color:#24231F;
-              font-family:${SERIF};">${p.replace(/\n/g,' ').trim()}</p>`).join('');
-}
+const kaart = inhoud => `
+  <tr><td style="padding:0 0 16px;">
+    <table role="presentation" width="100%" cellpadding="0" cellspacing="0"
+           style="background:#FFFFFF;border:1px solid ${K.lijn};border-radius:12px;">
+      <tr><td style="padding:22px 24px;">${inhoud}</td></tr>
+    </table>
+  </td></tr>`;
 
-function lijst(kop, regels) {
-  if (!regels.length) return '';
+const sectieKop = (titel, rechts = '') => `
+  <table role="presentation" width="100%" cellpadding="0" cellspacing="0"><tr>
+    <td style="font:700 12px ${FONT};letter-spacing:1.2px;text-transform:uppercase;color:${K.zacht};">${titel}</td>
+    <td align="right" style="font:400 12px ${FONT};color:${K.zacht};">${rechts}</td>
+  </tr></table>`;
+
+function taakGroep(kop, kleur, rijen) {
+  if (!rijen.length) return '';
   return `
-    <p style="margin:26px 0 10px;font-size:15px;font-style:italic;color:#8A857B;
-              font-family:${SERIF};">${kop}</p>
-    ${regels.map(r => `
-      <p style="margin:0 0 7px;font-size:16px;line-height:1.5;color:#24231F;
-                font-family:${SERIF};">
-        <span style="color:#B8B2A6;">—</span>&nbsp; ${r.tekst}${
-          r.bij ? `<span style="color:#8A857B;font-size:14px;">&nbsp; ${r.bij}</span>` : ''}
-      </p>`).join('')}`;
+    <p style="margin:18px 0 6px;font:700 15px ${FONT};color:${K.tekst};">
+      <span style="color:${kleur};">●</span>&nbsp; ${kop}
+      <span style="font-weight:400;color:${K.zacht};">&nbsp;${rijen.length}</span>
+    </p>
+    <table role="presentation" width="100%" cellpadding="0" cellspacing="0">
+      ${rijen.map(r => `
+      <tr>
+        <td style="padding:9px 0;border-top:1px solid ${K.lijn};font:400 16px/1.4 ${FONT};color:${K.tekst};">
+          ${esc(r.titel)}${r.hoog ? ` <span style="font:700 11px ${FONT};color:${K.rood};">&nbsp;HOOG</span>` : ''}
+        </td>
+        <td align="right" valign="top" style="padding:11px 0 9px 12px;border-top:1px solid ${K.lijn};
+            font:400 13px ${FONT};color:${r.kleur || K.zacht};white-space:nowrap;">${esc(r.bij || '')}</td>
+      </tr>`).join('')}
+    </table>`;
 }
 
-function buildEmail({ today, dagtekst, vandaag, dezeWeek, blijftLiggen, vergeetNiet,
-                      weerRegel, news, preheader }) {
+function takenSectie(g) {
+  const rij = (t, bij, kleur) => ({ titel: t.title, hoog: t.priority === 'hoog', bij, kleur });
+  const groepen =
+    taakGroep('Vandaag', K.blauw, g.todayT.map(t => rij(t, ''))) +
+    taakGroep('Te laat', K.rood, g.overdueToon.map(t =>
+      rij(t, `${dagen(daysBetween(t.deadline, g.today))} te laat`, K.rood))) +
+    taakGroep('Deze week', K.groen, g.upcoming.map(t => rij(t, formatShort(t.deadline)))) +
+    taakGroep('Hoge prioriteit, geen deadline', K.oranje, g.highPrio.map(t => rij(t, ''))) +
+    taakGroep('Blijft liggen', K.zacht, g.blijftLiggen.map(t => rij(t, `${dagen(t.dagen)} oud`)));
+
+  const oud = g.overdueVerborgen.length ? `
+    <p style="margin:16px 0 0;padding:12px 14px;background:${K.vlak};border-radius:8px;
+              font:400 14px/1.5 ${FONT};color:${K.zacht};">
+      <strong style="color:${K.tekst};">${taken(g.overdueVerborgen.length)} al langer dan een week te laat:</strong>
+      ${g.overdueVerborgen.map(t => esc(t.title)).join(' · ')}
+    </p>` : '';
+
+  const leeg = !groepen && !oud
+    ? `<p style="margin:14px 0 0;font:400 16px ${FONT};color:${K.zacht};">Geen openstaande taken met een deadline.</p>` : '';
+
+  return kaart(`
+    ${sectieKop('Taken', `<a href="${APP_URL}" style="color:${K.blauw};text-decoration:none;">Takenlijst openen</a>`)}
+    ${groepen}${oud}${leeg}`);
+}
+
+function weerSectie(w) {
+  if (!w) return '';
+  return kaart(`
+    ${sectieKop('Weer', esc(w.plaats))}
+    <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="margin-top:12px;"><tr>
+      <td width="64" style="font-size:46px;line-height:1;">${w.icoon}</td>
+      <td>
+        <div style="font:700 30px ${FONT};color:${K.tekst};">${w.temp}°</div>
+        <div style="font:400 14px ${FONT};color:${K.zacht};">${esc(w.beschrijving)} · ${w.min}° tot ${w.max}° · wind ${w.wind} km/u</div>
+      </td>
+    </tr></table>
+    <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="margin-top:16px;"><tr>
+      ${w.delen.map(d => `
+      <td align="center" width="${Math.floor(100 / w.delen.length)}%"
+          style="padding:12px 4px;background:${K.vlak};border:3px solid #FFFFFF;border-radius:10px;">
+        <div style="font:700 12px ${FONT};color:${K.zacht};text-transform:uppercase;letter-spacing:.8px;">${d.naam}</div>
+        <div style="font-size:28px;line-height:1.5;">${d.icoon}</div>
+        <div style="font:700 17px ${FONT};color:${K.tekst};">${d.temp}°</div>
+        <div style="font:400 12px ${FONT};color:${d.regen >= 40 ? K.blauw : K.zacht};">💧 ${d.regen}%</div>
+      </td>`).join('')}
+    </tr></table>`);
+}
+
+function nieuwsSectie(news) {
+  if (!news.length) return '';
+  const [kop, ...rest] = news;
+  return `
+  <tr><td style="padding:0 0 16px;">
+    <table role="presentation" width="100%" cellpadding="0" cellspacing="0"
+           style="background:#FFFFFF;border:1px solid ${K.lijn};border-radius:12px;overflow:hidden;">
+      <tr><td style="background:${K.nieuws};padding:10px 24px;font:700 13px ${FONT};letter-spacing:1.2px;
+                     text-transform:uppercase;color:#FFFFFF;">Nieuws
+        <span style="font-weight:400;letter-spacing:0;text-transform:none;opacity:.85;">&nbsp;· bron: NOS</span></td></tr>
+      ${kop.image ? `<tr><td><a href="${esc(kop.link)}"><img src="${esc(kop.image)}" width="600" alt=""
+           style="display:block;width:100%;height:auto;border:0;"></a></td></tr>` : ''}
+      <tr><td style="padding:18px 24px 6px;">
+        <a href="${esc(kop.link)}" style="font:800 22px/1.25 ${FONT};color:${K.tekst};text-decoration:none;">${esc(kop.title)}</a>
+        <p style="margin:8px 0 12px;font:400 15px/1.55 ${FONT};color:#344054;">${esc(kop.summary)}</p>
+      </td></tr>
+      ${rest.map(n => `
+      <tr><td style="padding:0 24px;">
+        <table role="presentation" width="100%" cellpadding="0" cellspacing="0"
+               style="border-top:1px solid ${K.lijn};"><tr>
+          ${n.image ? `<td width="112" valign="top" style="padding:14px 14px 14px 0;">
+            <a href="${esc(n.link)}"><img src="${esc(n.image)}" width="112" alt=""
+               style="display:block;width:112px;height:auto;border:0;border-radius:6px;"></a></td>` : ''}
+          <td valign="top" style="padding:14px 0;">
+            <a href="${esc(n.link)}" style="font:700 16px/1.3 ${FONT};color:${K.tekst};text-decoration:none;">${esc(n.title)}</a>
+            <p style="margin:5px 0 0;font:400 14px/1.5 ${FONT};color:${K.zacht};">${esc(n.summary)}</p>
+          </td>
+        </tr></table>
+      </td></tr>`).join('')}
+      <tr><td style="height:8px;"></td></tr>
+    </table>
+  </td></tr>`;
+}
+
+function buildEmail({ g, opening, weather, news, preheader }) {
   return `<!DOCTYPE html>
 <html lang="nl">
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<meta name="color-scheme" content="light dark">
-<meta name="supported-color-schemes" content="light dark">
+<meta name="color-scheme" content="light">
 </head>
-<body style="margin:0;padding:0;background:#F2F0EB;">
-
-  <div style="display:none;max-height:0;overflow:hidden;opacity:0;">${preheader}</div>
-
-  <div style="max-width:600px;margin:0 auto;padding:44px 28px 56px;background:#FFFEFB;">
-
-    <p style="margin:0 0 34px;font-size:14px;font-style:italic;color:#8A857B;
-              font-family:${SERIF};">${formatLong(today)}</p>
-
-    ${alineas(dagtekst)}
-
-    ${lijst('Vandaag', vandaag)}
-    ${lijst('Verder deze week', dezeWeek)}
-    ${lijst('Vergeet niet', vergeetNiet)}
-    ${lijst('Blijft liggen', blijftLiggen)}
-
-    ${weerRegel ? `
-      <p style="margin:30px 0 0;font-size:15px;line-height:1.6;color:#8A857B;
-                font-family:${SERIF};font-style:italic;">${weerRegel}</p>` : ''}
-
-    ${news.length ? `
-      <div style="border-top:1px solid #E2DED5;margin-top:38px;padding-top:30px;">
-        ${news.map(n => `
-          <p style="margin:0 0 20px;font-size:16px;line-height:1.68;color:#3A3830;
-                    font-family:${SERIF};">
-            <span style="font-weight:bold;color:#24231F;">${n.title}</span><br>${n.summary}
-          </p>`).join('')}
-      </div>` : ''}
-
-    <p style="margin:34px 0 0;">
-      <a href="https://keeshehenkamp.github.io/Taken-lijst/"
-         style="font-size:14px;font-style:italic;color:#8A857B;text-decoration:none;
-                font-family:${SERIF};">je takenlijst openen</a>
-    </p>
-
-  </div>
+<body style="margin:0;padding:0;background:${K.vlak};">
+  <div style="display:none;max-height:0;overflow:hidden;opacity:0;">${esc(preheader)}</div>
+  <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:${K.vlak};">
+  <tr><td align="center" style="padding:24px 12px 40px;">
+    <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="max-width:600px;">
+      <tr><td style="padding:8px 8px 22px;">
+        <div style="font:700 12px ${FONT};letter-spacing:1.2px;text-transform:uppercase;color:${K.zacht};">${formatLong(g.today)}</div>
+        <div style="margin-top:6px;font:800 28px/1.2 ${FONT};color:${K.tekst};">Goedemorgen Kees</div>
+        <p style="margin:10px 0 0;font:400 17px/1.55 ${FONT};color:#344054;">${esc(opening)}</p>
+      </td></tr>
+      ${takenSectie(g)}
+      ${weerSectie(weather)}
+      ${nieuwsSectie(news)}
+      ${storingen.length ? `<tr><td style="padding:4px 8px;font:400 12px/1.5 ${FONT};color:${K.oranje};">
+        Let op: ${storingen.map(esc).join(' ')}</td></tr>` : ''}
+    </table>
+  </td></tr>
+  </table>
 </body>
 </html>`;
 }
 
 // ── Hoofdprogramma ──────────────────────────────────────────────
 
-/**
- * Bepaalt of deze aanloop de mail van vandaag moet versturen.
- * De workflow draait twee keer zodat 07:00 Amsterdam in zomer- én wintertijd
- * geraakt wordt; alleen de aanloop die er als eerste bij is doet het werk.
- * Een handmatige run via GitHub verstuurt altijd, voor het testen.
- */
+/** Meerdere geplande aanlopen per ochtend; alleen de eerste na 04:00 NL
+ *  verstuurt. Een handmatige run via GitHub verstuurt altijd. */
 async function magVersturen(today, marker) {
   if (process.env.GITHUB_EVENT_NAME === 'workflow_dispatch') return true;
-
   const uurNL = +new Date().toLocaleString('en-US',
     { timeZone: 'Europe/Amsterdam', hour: 'numeric', hour12: false });
-  if (uurNL < 4) {
-    console.log(`Nog geen vier uur in Amsterdam (${uurNL}:00) — overgeslagen.`);
-    return false;
-  }
-
+  if (uurNL < 4) { console.log(`Nog geen vier uur in Amsterdam (${uurNL}:00) — overgeslagen.`); return false; }
   const snap = await marker.get();
-  if (snap.exists && snap.data().lastSent === today) {
-    console.log('Vandaag al verstuurd — overgeslagen.');
-    return false;
-  }
+  if (snap.exists && snap.data().lastSent === today) { console.log('Vandaag al verstuurd — overgeslagen.'); return false; }
   return true;
 }
 
-async function main() {
-  const today = todayNL();
-  const dow   = dayOfWeek(today);
-  const isVrijdag = dow === 5;
-
-  const marker = db.collection('meta').doc('morning-email');
-  if (!await magVersturen(today, marker)) return;
-
-  const snap = await db.collection('users').doc(process.env.USER_UID).get();
-  if (!snap.exists) { console.log('Geen data — overgeslagen.'); return; }
-  const { tasks = [] } = snap.data();
-
-  const weekEnd   = addDays(today, 7);
-  const weekStart = addDays(today, -(dow === 0 ? 6 : dow - 1));
-  const open      = tasks.filter(t => !t.done);
+function groepeer(tasks, today) {
+  const dow     = dayOfWeek(today);
+  const weekEnd = addDays(today, 7);
+  const open    = tasks.filter(t => !t.done);
 
   const overdue  = sortTasks(open.filter(t => t.deadline && t.deadline < today));
   const todayT   = sortTasks(open.filter(t => t.deadline === today));
-  const upcoming = sortTasks(open.filter(t => t.deadline && t.deadline > today && t.deadline <= weekEnd));
-  const highPrio = sortTasks(open.filter(t =>
-    t.priority === 'hoog' && !overdue.includes(t) && !todayT.includes(t) && !upcoming.includes(t)));
+  const upcoming = sortTasks(open.filter(t => t.deadline && t.deadline > today && t.deadline <= weekEnd))
+                     .sort((a, b) => a.deadline.localeCompare(b.deadline));
+  const highPrio = sortTasks(open.filter(t => t.priority === 'hoog' && !t.deadline));
 
-  // Zonder deadline en ouder dan 14 dagen.
+  // Taken die meer dan een week te laat zijn, staan alleen op maandag voluit
+  // in de lijst; op andere dagen als één samenvattende regel.
+  const overdueRecent = overdue.filter(t => daysBetween(t.deadline, today) <= 7);
+  const overdueOud    = overdue.filter(t => daysBetween(t.deadline, today) > 7);
+  const maandag       = dow === 1;
+
   const blijftLiggen = open
-    .filter(t => !t.deadline && t.createdAt)
+    .filter(t => !t.deadline && t.createdAt && t.priority !== 'hoog')
     .map(t => ({ ...t, dagen: daysBetween(t.createdAt, today) }))
     .filter(t => t.dagen >= 14)
     .sort((a, b) => b.dagen - a.dagen)
     .slice(0, 4);
 
-  const [weather, rawNews] = await Promise.all([fetchWeather(), fetchNews()]);
-  const news = await Promise.all(
-    rawNews.map(async n => ({ ...n, summary: await summarizeArticle(n) }))
-  );
+  const zevenDagen = addDays(today, -7);
+  const afgerond   = tasks.filter(t => t.done && t.doneAt && t.doneAt.slice(0,10) >= zevenDagen);
 
-  const zevenDagen    = addDays(today, -7);
-  const afgerondRecent = tasks.some(t => t.done && t.doneAt && t.doneAt.slice(0,10) >= zevenDagen);
+  return { today, isVrijdag: dow === 5, todayT, upcoming, highPrio, blijftLiggen, afgerond,
+           overdue, overdueRecent, overdueOud,
+           overdueToon:      maandag ? overdue : overdueRecent,
+           overdueVerborgen: maandag ? [] : overdueOud };
+}
 
-  const dagtekst = isVrijdag
-    ? await schrijfWeekterugblik({
-        today,
-        afgerond: tasks.filter(t => t.done && t.doneAt && t.doneAt.slice(0,10) >= weekStart),
-        nogOpen:  [...todayT, ...upcoming],
-        overdue,
-      })
-    : await schrijfDagtekst({ today, todayT, overdue, upcoming, blijftLiggen, afgerondRecent });
+function voorbeeldTaken(today) {
+  return [
+    { title: 'Onderzoeken afspraak Liron', deadline: today },
+    { title: 'Verslag poli inleveren', deadline: addDays(today, -2), priority: 'hoog' },
+    { title: 'Presentatie voorbereiden', deadline: addDays(today, 3) },
+    { title: 'Boek terugbrengen', deadline: addDays(today, 5) },
+    { title: 'FKR kindergeneeskunde afmaken', deadline: addDays(today, -22) },
+    { title: 'Checken bijwerkingen opdracht', deadline: addDays(today, -22) },
+    { title: 'Laten weten aan Marjanne en Carolyn', deadline: addDays(today, -25) },
+    { title: 'Pak bij Pelger opnieuw opmeten', createdAt: addDays(today, -136) },
+  ];
+}
 
-  const weerRegel = weather
-    ? `${weather.beschrijving}, nu ${weather.temp}° en vanmiddag tot ${weather.max}°` +
-      `${weather.regenKans >= 40 ? `, ${weather.regenKans}% kans op regen` : ''}.`
-    : '';
+async function main() {
+  const today = todayNL();
+  let db, marker, tasks;
 
-  const html = buildEmail({
-    today,
-    dagtekst,
-    weerRegel,
-    vandaag:     todayT.map(t => ({ tekst: t.title, bij: '' })),
-    dezeWeek:    upcoming.map(t => ({ tekst: t.title, bij: formatShort(t.deadline) })),
-    vergeetNiet: [...overdue, ...highPrio].map(t => ({
-      tekst: t.title,
-      bij:   t.deadline ? `${daysBetween(t.deadline, today)} dagen te laat` : 'hoge prioriteit',
-    })),
-    blijftLiggen: blijftLiggen.map(t => ({ tekst: t.title, bij: `${t.dagen} dagen` })),
-    news,
-    preheader: todayT.length
-      ? `${todayT[0].title}${todayT.length > 1 ? ` en ${todayT.length - 1} andere` : ''}`
-      : (overdue.length ? `${overdue.length} taken over de deadline` : 'Niets gepland vandaag'),
-  });
+  if (PREVIEW) {
+    tasks = voorbeeldTaken(today);
+  } else {
+    const admin = require('firebase-admin');
+    admin.initializeApp({ credential: admin.credential.cert(JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT)) });
+    db     = admin.firestore();
+    marker = db.collection('meta').doc('morning-email');
+    if (!await magVersturen(today, marker)) return;
+    const snap = await db.collection('users').doc(process.env.USER_UID).get();
+    if (!snap.exists) { console.log('Geen data — overgeslagen.'); return; }
+    tasks = snap.data().tasks || [];
+  }
 
-  const onderwerp = isVrijdag
-    ? `De week van ${formatShort(weekStart)}`
-    : todayT.length
-      ? `${todayT.length} ${todayT.length === 1 ? 'taak' : 'taken'} — ${todayT[0].title}`
-      : (overdue.length ? `${overdue.length} taken over de deadline` : 'Niets gepland vandaag');
+  const g = groepeer(tasks, today);
+  const [weather, news, opening] = await Promise.all([fetchWeather(), fetchNews(), schrijfOpening(g)]);
 
+  // Onderwerp en voorvertoning komen uit dezelfde telling, zodat ze altijd kloppen.
+  const delen = [];
+  if (g.todayT.length)  delen.push(`${taken(g.todayT.length)} vandaag`);
+  if (g.overdue.length) delen.push(`${g.overdue.length} te laat`);
+  const onderwerp = `${formatShort(today)} — ${delen.join(', ') || 'niets gepland'}`;
+  const preheader = g.todayT.length ? g.todayT.map(t => t.title).join(' · ') : opening;
+
+  const html = buildEmail({ g, opening, weather, news, preheader });
+
+  if (PREVIEW) {
+    require('fs').writeFileSync('preview.html', html);
+    console.log(`Voorbeeld geschreven naar preview.html — onderwerp: ${onderwerp}`);
+    return;
+  }
+
+  const nodemailer = require('nodemailer');
   await nodemailer.createTransport({
     host: 'smtp.gmail.com', port: 465, secure: true,
     auth: { user: process.env.GMAIL_USER, pass: process.env.GMAIL_APP_PASSWORD },
   }).sendMail({
-    from:    `"Ochtend" <${process.env.GMAIL_USER}>`,
-    to:      process.env.RECIPIENT_EMAIL,
+    from: `"Ochtend" <${process.env.GMAIL_USER}>`,
+    to: process.env.RECIPIENT_EMAIL,
     subject: onderwerp,
     html,
   });
 
   await marker.set({ lastSent: today });
-  console.log(`✓ Verstuurd voor ${today} — ${news.length} artikelen`);
+  console.log(`✓ Verstuurd voor ${today} — ${news.length} artikelen` +
+              (storingen.length ? ` — storingen: ${storingen.join(' | ')}` : ''));
 }
 
 main()
