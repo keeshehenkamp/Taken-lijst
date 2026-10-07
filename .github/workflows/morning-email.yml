@@ -1,15 +1,9 @@
 name: Ochtend-email takenlijst
 
 on:
-  schedule:
-    # GitHub start geplande runs soms uren te laat, vooral op het hele uur.
-    # Daarom meerdere vroege pogingen op :17; de eerste die draait na 04:00 NL
-    # verstuurt de mail, de rest ziet dat hij al weg is.
-    - cron: '17 2 * * *'
-    - cron: '17 3 * * *'
-    - cron: '17 4 * * *'
-    - cron: '17 5 * * *'
-  workflow_dispatch:  # handmatig starten voor testen — knop op GitHub
+  # Uitgezet op 7-10-2026: het ochtendoverzicht komt nu van een Claude-routine
+  # (zie ochtendoverzicht/). Handmatig starten kan nog via de knop op GitHub.
+  workflow_dispatch:
 
 jobs:
   send-morning-email:
