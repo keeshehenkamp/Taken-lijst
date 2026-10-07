@@ -231,6 +231,17 @@ def taken_sectie(g, vandaag):
     link = f'<a href="{TODOIST_URL}" style="color:{K["blauw"]};text-decoration:none;">Todoist openen</a>'
     return kaart(sectie_kop('Taken', link) + groepen)
 
+def uitgezocht_sectie(items):
+    if not items:
+        return ''
+    blokken = ''.join(f'''
+    <div style="padding:12px 0;border-top:1px solid {K['lijn']};">
+      <a href="{esc(u.get('url'))}" style="font:600 16px/1.4 {FONT};color:{K['tekst']};text-decoration:none;">{esc(u['titel'])}</a>
+      <div style="margin-top:4px;font:400 15px/1.5 {FONT};color:#344054;">{esc(u.get('antwoord'))}</div>
+    </div>''' for u in items)
+    return kaart(sectie_kop('Uitgezocht', 'antwoord staat bij de taak') +
+                 f'<div style="height:10px;"></div>{blokken}')
+
 def mail_sectie(antwoord, wacht, actie, vandaag):
     if not antwoord and not wacht and not actie:
         return ''
@@ -307,6 +318,7 @@ def bouw(data):
 
     secties = (agenda_sectie(data.get('agenda', []), vandaag, weekweergave=maandag) +
                taken_sectie(g, vandaag) +
+               uitgezocht_sectie(data.get('uitgezocht', [])) +
                mail_sectie(antw, wacht, actie, vandaag) +
                (terugblik_sectie(data.get('afgerond', [])) if vrijdag else '') +
                weer_sectie(weer))
