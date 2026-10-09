@@ -1,9 +1,14 @@
 #!/usr/bin/env python3
-"""render_tekst.py — maakt het ochtendoverzicht als gewone tekst (geen HTML, geen weer).
+"""render_tekst.py — maakt het ochtendoverzicht in een eenvoudige, compacte opmaak.
 
-    python3 render_tekst.py data.json   schrijft overzicht.txt en onderwerp.txt
+Kopjes, lijstjes en klikbare titels; geen zichtbare links, geen weer, geen zware
+opmaak. Klein genoeg om elke ochtend goedkoop mee te sturen.
+
+    python3 render_tekst.py data.json
+        schrijft overzicht.html (voor htmlBody), overzicht.txt (voor body) en onderwerp.txt
 """
 
+import html
 import json
 import sys
 from datetime import timedelta
@@ -11,27 +16,28 @@ from pathlib import Path
 
 from render import deel_taken_in, dagen, iso, kort, lang
 
-BREED = 44
-LIJN = '─' * BREED
+GRIJS = 'color:#777'
 
 
-def kop(titel):
-    return f'\n{titel.upper()}\n{LIJN}'
+def e(s):
+    return html.escape(str(s or ''))
 
 
-def taakregel(t, rechts=''):
-    plek = ' · '.join(x for x in (t.get('project'), t.get('sectie')) if x)
-    hoog = ' [HOOG]' if t.get('prioriteit') == 'p1' else ''
-    regel = f'• {t["titel"]}{hoog}' + (f'  ({rechts})' if rechts else '')
-    if plek:
-        regel += f'\n    {plek}'
-    if t.get('url'):
-        regel += f'\n    {t["url"]}'
-    return regel
+def link(titel, url):
+    return f'<a href="{e(url)}">{e(titel)}</a>' if url else e(titel)
 
 
-def groep(naam, regels):
-    return f'\n{naam} ({len(regels)})\n' + '\n'.join(regels) + '\n' if regels else ''
+def grijs(s):
+    return f' <span style="{GRIJS}">· {e(s)}</span>' if s else ''
+
+
+def lijst(naam, items):
+    """items: lijst van (html, tekst). Leeg = niets tonen."""
+    if not items:
+        return '', ''
+    h = f'<p><b>{e(naam)}</b></p><ul>' + ''.join(f'<li>{x}</li>' for x, _ in items) + '</ul>'
+    t = f'{naam}\n' + ''.join(f'- {y}\n' for _, y in items) + '\n'
+    return h, t
 
 
 def agenda(items, vandaag, week):
@@ -49,20 +55,28 @@ def agenda(items, vandaag, week):
             for b in timed[i + 1:]:
                 if b['start'] < (a.get('eind') or a['start']):
                     a['overlap'] = b['overlap'] = True
+
+    kop = 'Deze week' if week else 'Agenda'
     if not per_dag:
-        return kop('Agenda deze week' if week else 'Agenda vandaag') + \
-            f'\n{"Geen afspraken deze week." if week else "Geen afspraken vandaag."}\n'
-    uit = kop('Agenda deze week' if week else 'Agenda vandaag') + '\n'
+        leeg = 'Geen afspraken deze week.' if week else 'Geen afspraken vandaag.'
+        return f'<h3>{kop}</h3><p>{leeg}</p>', f'{kop.upper()}\n{leeg}\n\n'
+
+    h, t = f'<h3>{kop}</h3>', f'{kop.upper()}\n'
     for d in sorted(per_dag):
-        if week:
-            uit += f'\n{lang(d).capitalize()}\n'
+        items = []
         for a in sorted(per_dag[d], key=lambda a: (not a.get('hele_dag'), a.get('start') or '')):
             tijd = 'hele dag' if a.get('hele_dag') else (a.get('start') or '') + (f'–{a["eind"]}' if a.get('eind') else '')
-            extra = [x for x in (a.get('locatie'),
-                                 'overlapt met een andere afspraak' if a.get('overlap') else '',
-                                 'uit je mail, staat niet in je agenda' if a.get('bron') == 'mail' else '') if x]
-            uit += f'{tijd:<12}{a["titel"]}' + (f'  [{"; ".join(extra)}]' if extra else '') + '\n'
-    return uit
+            extra = ', '.join(x for x in (a.get('locatie'),
+                                         'overlapt!' if a.get('overlap') else '',
+                                         'alleen in je mail' if a.get('bron') == 'mail' else '') if x)
+            items.append((f'<b>{e(tijd)}</b> {e(a["titel"])}{grijs(extra)}',
+                          f'{tijd} {a["titel"]}' + (f' ({extra})' if extra else '')))
+        dh, dt = lijst(lang(d).capitalize() if week else '', items)
+        if not week:
+            dh = dh.replace('<p><b></b></p>', '')
+            dt = dt.lstrip('\n')
+        h, t = h + dh, t + dt
+    return h, t
 
 
 def bouw(data):
@@ -80,55 +94,67 @@ def bouw(data):
     soort = 'Week' if maandag else ('Terugblik' if vrijdag else 'Ochtend')
     onderwerp = f'{soort} · {kort(vandaag)} · {", ".join(delen) or "rustige dag"}'
 
-    t = f'Goedemorgen Kees, {lang(vandaag)}\n'
+    h = f'<p>Goedemorgen Kees, {e(lang(vandaag))}.</p>'
+    t = f'Goedemorgen Kees, {lang(vandaag)}.\n\n'
     if data.get('opening'):
-        t += f'\n{data["opening"]}\n'
+        h += f'<p>{e(data["opening"])}</p>'
+        t += f'{data["opening"]}\n\n'
 
-    t += agenda(data.get('agenda', []), vandaag, maandag)
+    ah, at = agenda(data.get('agenda', []), vandaag, maandag)
+    h, t = h + ah, t + at
 
-    taken = (groep('Te laat', [taakregel(x, f'{dagen((vandaag - iso(x["due"])).days)} te laat') for x in g['te_laat']]) +
-             groep('Vandaag', [taakregel(x) for x in g['vandaag']]) +
-             groep('Komende zeven dagen', [taakregel(x, kort(iso(x['due']))) for x in g['week']]) +
-             groep('Hoge prioriteit, geen datum', [taakregel(x) for x in g['hoog']]) +
-             groep('Blijft liggen', [taakregel(x, f'{dagen(x["oud"])} oud') for x in g['liggen']]))
-    t += kop('Taken') + '\n' + (taken or '\nGeen taken met een datum.\n') + \
-        '\nTodoist: https://app.todoist.com/app/today\n'
+    def taak(x, rechts=''):
+        return (link(x['titel'], x.get('url')) + (f' — {e(rechts)}' if rechts else ''),
+                x['titel'] + (f' ({rechts})' if rechts else ''))
+
+    blokken = [lijst('Te laat', [taak(x, f'{dagen((vandaag - iso(x["due"])).days)} te laat') for x in g['te_laat']]),
+               lijst('Vandaag', [taak(x) for x in g['vandaag']]),
+               lijst('Komende dagen', [taak(x, kort(iso(x['due']))) for x in g['week']]),
+               lijst('Belangrijk, zonder datum', [taak(x) for x in g['hoog']]),
+               lijst('Blijft liggen', [taak(x, f'{dagen(x["oud"])} oud') for x in g['liggen']])]
+    h += '<h3>Taken</h3>' + (''.join(b[0] for b in blokken) or '<p>Geen taken met een datum.</p>')
+    t += 'TAKEN\n' + (''.join(b[1] for b in blokken) or 'Geen taken met een datum.\n\n')
 
     if data.get('uitgezocht'):
-        t += kop('Uitgezocht') + '\n'
-        for u in data['uitgezocht']:
-            t += f'\n• {u["titel"]}\n    {u.get("antwoord", "")}\n    {u.get("url", "")}\n'
+        uh, ut = lijst('', [(link(u['titel'], u.get('url')) + f'<br>{e(u.get("antwoord"))}',
+                             f'{u["titel"]}: {u.get("antwoord", "")}') for u in data['uitgezocht']])
+        h += '<h3>Uitgezocht</h3>' + uh.replace('<p><b></b></p>', '')
+        t += 'UITGEZOCHT\n' + ut.lstrip('\n')
 
-    def mailregel(m, wie):
+    def mail(m, wie):
         sinds = iso(m.get('sinds'))
         leeftijd = '' if not sinds else ('vandaag' if sinds == vandaag else dagen((vandaag - sinds).days))
-        sub = ' · '.join(x for x in (m.get(wie), m.get('waarom')) if x)
-        r = f'• {m.get("onderwerp") or "(geen onderwerp)"}' + (f'  ({leeftijd})' if leeftijd else '')
-        if sub:
-            r += f'\n    {sub}'
-        if m.get('link'):
-            r += f'\n    {m["link"]}'
-        return r
+        sub = ', '.join(x for x in (m.get(wie), m.get('waarom'), leeftijd) if x)
+        return (link(m.get('onderwerp') or '(geen onderwerp)', m.get('link')) + grijs(sub),
+                (m.get('onderwerp') or '(geen onderwerp)') + (f' ({sub})' if sub else ''))
 
     if antw or wacht or actie:
-        t += kop('Mail') + '\n' + \
-            groep('Actie nodig', [mailregel(m, 'van') for m in actie]) + \
-            groep('Wacht op jouw antwoord', [mailregel(m, 'van') for m in antw]) + \
-            groep('Jij wacht op antwoord', [mailregel(m, 'aan') for m in wacht])
+        blokken = [lijst('Actie nodig', [mail(m, 'van') for m in actie]),
+                   lijst('Wacht op jouw antwoord', [mail(m, 'van') for m in antw]),
+                   lijst('Jij wacht op antwoord', [mail(m, 'aan') for m in wacht])]
+        h += '<h3>Mail</h3>' + ''.join(b[0] for b in blokken)
+        t += 'MAIL\n' + ''.join(b[1] for b in blokken)
 
     if vrijdag:
-        af = [f'• {x["titel"]}' + (f'  ({kort(iso(x["op"]))})' if x.get('op') else '') for x in data.get('afgerond', [])]
-        t += kop('Afgerond deze week') + '\n' + (groep('Gedaan', af) or '\nDeze week niets afgevinkt.\n')
+        af = [(e(x['titel']) + grijs(kort(iso(x['op'])) if x.get('op') else ''), x['titel'])
+              for x in data.get('afgerond', [])]
+        fh, ft = lijst('Afgevinkt', af)
+        h += '<h3>Deze week</h3>' + (fh or '<p>Deze week niets afgevinkt.</p>')
+        t += 'DEZE WEEK\n' + (ft or 'Deze week niets afgevinkt.\n\n')
 
     if data.get('storingen'):
-        t += '\nLet op: ' + ' '.join(data['storingen']) + '\n'
-    return onderwerp, t.rstrip() + '\n'
+        h += f'<p style="{GRIJS}">Let op: {e(" ".join(data["storingen"]))}</p>'
+        t += 'Let op: ' + ' '.join(data['storingen']) + '\n'
+
+    h = f'<div style="font-family:Arial,sans-serif;font-size:15px;line-height:1.5;max-width:600px">{h}</div>'
+    return onderwerp, h, t.rstrip() + '\n'
 
 
 def main():
     bron = Path(sys.argv[1] if len(sys.argv) > 1 else 'data.json')
-    onderwerp, tekst = bouw(json.loads(bron.read_text(encoding='utf-8')))
-    (bron.parent / 'overzicht.txt').write_text(tekst, encoding='utf-8')
+    onderwerp, h, t = bouw(json.loads(bron.read_text(encoding='utf-8')))
+    (bron.parent / 'overzicht.html').write_text(h, encoding='utf-8')
+    (bron.parent / 'overzicht.txt').write_text(t, encoding='utf-8')
     (bron.parent / 'onderwerp.txt').write_text(onderwerp, encoding='utf-8')
     print(onderwerp)
 

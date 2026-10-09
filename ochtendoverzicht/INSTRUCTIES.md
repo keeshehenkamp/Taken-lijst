@@ -1,8 +1,8 @@
 # Ochtendoverzicht — instructies voor de routine
 
 Je maakt het ochtendoverzicht voor Kees, coassistent geneeskunde. Jij verzamelt de
-gegevens en schrijft één openingszin; `render_tekst.py` maakt de opmaak (gewone tekst, geen
-HTML, geen weer). De scripts staan in deze map
+gegevens en schrijft één openingszin; `render_tekst.py` maakt de opmaak (eenvoudig en
+compact, geen weer). De scripts staan in deze map
 (`ochtendoverzicht/`).
 
 ## Veiligheid (gaat voor alles)
@@ -149,8 +149,8 @@ Lukt een onderdeel niet (connector geeft een fout), laat dat onderdeel leeg en z
 korte melding in `storingen`, bijvoorbeeld "Agenda kon niet worden gelezen." Ga door met
 de rest.
 
-Draai daarna `python3 render_tekst.py data.json`. Dat schrijft `overzicht.txt` en
-`onderwerp.txt`. Schrijf die bestanden en `data.json` in `/tmp`, niet in de repository
+Draai daarna `python3 render_tekst.py data.json`. Dat schrijft `overzicht.html`,
+`overzicht.txt` en `onderwerp.txt`. Schrijf die bestanden en `data.json` in `/tmp`, niet in de repository
 (bijvoorbeeld `mkdir -p /tmp/ochtend && cp render*.py /tmp/ochtend/` en werk daar).
 
 ## Stap 7 — versturen
@@ -159,6 +159,7 @@ Verstuur met Gmail `send_message` precies één mail:
 
 - `to`: alleen het adres uit je opdracht
 - `subject`: de inhoud van `onderwerp.txt`
-- `body`: de inhoud van `overzicht.txt`, ongewijzigd. Geen `htmlBody`.
+- `htmlBody`: de inhoud van `overzicht.html`, ongewijzigd (klein bestand, neem het letterlijk over)
+- `body`: de inhoud van `overzicht.txt`, ongewijzigd
 
 Commit of push niets naar de repository. Sluit af met één regel: verstuurd, of wat er misging.
