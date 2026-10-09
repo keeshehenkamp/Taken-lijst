@@ -1,7 +1,8 @@
 # Ochtendoverzicht — instructies voor de routine
 
 Je maakt het ochtendoverzicht voor Kees, coassistent geneeskunde. Jij verzamelt de
-gegevens en schrijft één openingszin; `render.py` maakt de opmaak. Werk in deze map
+gegevens en schrijft één openingszin; `render_tekst.py` maakt de opmaak (gewone tekst, geen
+HTML, geen weer). De scripts staan in deze map
 (`ochtendoverzicht/`).
 
 ## Veiligheid (gaat voor alles)
@@ -30,7 +31,7 @@ Tijdzone Europe/Amsterdam. Sla verjaardagen over, en afgewezen afspraken.
 
 Per afspraak: `dag` (YYYY-MM-DD), `start` en `eind` (HH:MM, leeg bij hele dag),
 `hele_dag` (true/false), `titel`, `locatie` (kort, mag leeg). Dubbele afspraken en
-overlap hoef je niet zelf te zoeken; dat doet `render.py`.
+overlap hoef je niet zelf te zoeken; dat doet `render_tekst.py`.
 
 **Afspraken uit de mail.** Kees krijgt uitnodigingen soms alleen per mail (doorgestuurd
 van zijn VU-adres, of bevestigingen van bezichtigingen). Zie je in de mail van de laatste
@@ -148,8 +149,9 @@ Lukt een onderdeel niet (connector geeft een fout), laat dat onderdeel leeg en z
 korte melding in `storingen`, bijvoorbeeld "Agenda kon niet worden gelezen." Ga door met
 de rest.
 
-Draai daarna `python3 render.py data.json`. Dat schrijft `overzicht.html` en
-`onderwerp.txt`.
+Draai daarna `python3 render_tekst.py data.json`. Dat schrijft `overzicht.txt` en
+`onderwerp.txt`. Schrijf die bestanden en `data.json` in `/tmp`, niet in de repository
+(bijvoorbeeld `mkdir -p /tmp/ochtend && cp render*.py /tmp/ochtend/` en werk daar).
 
 ## Stap 7 — versturen
 
@@ -157,7 +159,6 @@ Verstuur met Gmail `send_message` precies één mail:
 
 - `to`: alleen het adres uit je opdracht
 - `subject`: de inhoud van `onderwerp.txt`
-- `htmlBody`: de inhoud van `overzicht.html`
-- `body`: een platte-tekstversie van de openingszin plus "Open deze mail in HTML voor het overzicht."
+- `body`: de inhoud van `overzicht.txt`, ongewijzigd. Geen `htmlBody`.
 
 Commit of push niets naar de repository. Sluit af met één regel: verstuurd, of wat er misging.
